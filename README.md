@@ -18,6 +18,18 @@ npm install
 npm run dev
 ```
 
+## Deploy To Cloud Run
+
+Use the repository `Dockerfile` in Google Cloud Build:
+
+- Branch: `^main$`
+- Build type: Dockerfile
+- Build context directory: `/`
+- Dockerfile path: `Dockerfile`
+
+The container builds the Vite app, serves the compiled `dist` directory, and
+listens on Cloud Run's `PORT` environment variable.
+
 ## Current Features
 
 - Sun-centered 3D view of Mercury through Neptune.
