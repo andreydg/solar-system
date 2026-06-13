@@ -1,6 +1,7 @@
 node_modules
 dist
 .vite
+backend/target
 .DS_Store
 *.local
 *.tsbuildinfo

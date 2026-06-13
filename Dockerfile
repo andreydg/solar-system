@@ -1,22 +1,27 @@
-FROM node:22-alpine AS deps
+FROM node:22-alpine AS frontend-deps
 
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
-FROM deps AS build
+FROM frontend-deps AS frontend-build
 
 COPY . .
 RUN npm run build
 
-FROM node:22-alpine AS runtime
+FROM maven:3.9-eclipse-temurin-21 AS backend-build
 
-ENV NODE_ENV=production
+WORKDIR /app/backend
+COPY backend/pom.xml ./
+RUN mvn -B dependency:go-offline
+COPY backend/src ./src
+COPY --from=frontend-build /app/dist ./src/main/resources/static
+RUN mvn -B package -DskipTests
+
+FROM eclipse-temurin:21-jre-alpine AS runtime
+
 ENV PORT=8080
-
 WORKDIR /app
-COPY server.mjs ./
-COPY --from=build /app/dist ./dist
-
+COPY --from=backend-build /app/backend/target/solar-system-backend-0.1.0.jar ./app.jar
 EXPOSE 8080
-CMD ["node", "server.mjs"]
+ENTRYPOINT ["java", "-jar", "app.jar"]
