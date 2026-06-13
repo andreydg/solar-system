@@ -256,7 +256,7 @@ export default function ControlPanel({
             {eventResult.source ? <small>Source: {formatSource(eventResult.source)}</small> : null}
             {eventResult.validationStatus === "validated" ? <small>Validated</small> : null}
             {eventResult.validationStatus === "pending" || eventResult.validationStatus === "failed" ? (
-              <small>Pending</small>
+              <small>Validation pending</small>
             ) : null}
           </div>
         ) : null}
