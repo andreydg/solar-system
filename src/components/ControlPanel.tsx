@@ -1,49 +1,95 @@
+import { useState } from "react";
+import ValidatedEventsOverlay from "./ValidatedEventsOverlay";
 import {
   AU_KM,
   BODIES,
   BODY_BY_ID,
   type BodyId,
-  type ClosestApproachResult,
 } from "../domain/solarSystem";
+import {
+  EVENT_TYPES,
+  formatEventTypeLabel,
+  getEventTargetOptions,
+  locksEarthAsBodyA,
+  type CatalogEventType,
+} from "../domain/eventTypes";
+import type { CatalogEventType as ApiCatalogEventType } from "../lib/eventCatalogApi";
 import type { CSSProperties } from "react";
 
 type ControlPanelProps = {
   currentTime: Date;
-  eventResult: ClosestApproachResult | null;
+  eventBodyA: BodyId;
+  eventBodyB: BodyId;
+  eventPairIsValid: boolean;
+  eventResult: EventResultView | null;
+  eventStatus: string | null;
+  eventType: ApiCatalogEventType;
   isPlaying: boolean;
   isSearching: boolean;
+  locksEarthAsBodyA: boolean;
   speedDaysPerSecond: number;
   visibleBodies: BodyId[];
   onDateChange: (time: Date) => void;
+  onEventBodyAChange: (body: BodyId) => void;
+  onEventBodyBChange: (body: BodyId) => void;
+  onEventTypeChange: (type: ApiCatalogEventType) => void;
+  onNextEvent: () => void;
   onPlayToggle: () => void;
-  onSearchClosestApproach: () => void;
   onSpeedChange: (daysPerSecond: number) => void;
   onToggleBody: (body: BodyId) => void;
 };
 
+type CatalogMetadata = {
+  id: string;
+  source: string;
+  jplCheckedAtUtc: Date | null;
+  jplDeltaKm: number | null;
+  jplRawSummary: string | null;
+  validationStatus: "pending" | "validated" | "failed";
+};
+
+type EventResultView = Partial<CatalogMetadata> & {
+  angleDeg: number | null;
+  bodyA: BodyId;
+  bodyB: BodyId;
+  distanceAu: number | null;
+  distanceKm: number | null;
+  magnitude: number | null;
+  time: Date;
+  type?: CatalogEventType;
+};
+
 export default function ControlPanel({
   currentTime,
+  eventBodyA,
+  eventBodyB,
+  eventPairIsValid,
   eventResult,
+  eventStatus,
+  eventType,
   isPlaying,
   isSearching,
+  locksEarthAsBodyA,
   speedDaysPerSecond,
   visibleBodies,
   onDateChange,
+  onEventBodyAChange,
+  onEventBodyBChange,
+  onEventTypeChange,
+  onNextEvent,
   onPlayToggle,
-  onSearchClosestApproach,
   onSpeedChange,
   onToggleBody,
 }: ControlPanelProps) {
+  const [showEventHelp, setShowEventHelp] = useState(false);
+  const [showValidatedEvents, setShowValidatedEvents] = useState(false);
+  const searchDisabled = isSearching || !eventPairIsValid;
+  const bodyBOptions = locksEarthAsBodyA ? getEventTargetOptions(eventType) : BODIES.map((body) => body.id);
+
   return (
     <aside className="control-panel" aria-label="Simulation controls">
       <div>
-        <p className="eyebrow">Frontend-only ephemeris MVP</p>
         <h1>Solar System Explorer</h1>
-        <p className="lede">
-          Major planets are placed from analytical ephemeris calculations in the browser.
-          Distances are physical; planet sizes and rendered spacing are intentionally scaled
-          for readability.
-        </p>
       </div>
 
       <section className="control-section">
@@ -103,39 +149,148 @@ export default function ControlPanel({
 
       <section className="control-section">
         <h2>Events</h2>
-        <p>
-          Search the next three years for the nearest Earth-Mars distance, then jump
-          the clock to that instant.
-        </p>
-        <button type="button" disabled={isSearching} onClick={onSearchClosestApproach}>
-          {isSearching ? "Searching..." : "Find next Earth-Mars closest approach"}
+        <label className="field">
+          <span className="field-label-row">
+            Event type
+            <button
+              type="button"
+              className="info-button"
+              aria-expanded={showEventHelp}
+              aria-label="Show event type help"
+              onClick={() => setShowEventHelp((visible) => !visible)}
+            >
+              i
+            </button>
+          </span>
+          <select
+            value={eventType}
+            onChange={(event) => onEventTypeChange(event.target.value as ApiCatalogEventType)}
+          >
+            {EVENT_TYPES.map((type) => (
+              <option key={type.id} value={type.id}>
+                {type.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {showEventHelp ? (
+          <div className="info-popover" role="dialog" aria-label="Event type descriptions">
+            <div className="info-popover-list">
+              {EVENT_TYPES.map((type) => (
+                <div
+                  className={`info-popover-item${type.id === eventType ? " info-popover-item-selected" : ""}`}
+                  key={type.id}
+                >
+                  <strong>{type.label}</strong>
+                  <span>{type.description}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="event-select-grid">
+          <label className="field">
+            <span>{locksEarthAsBodyA ? "Observer" : "Body A"}</span>
+            {locksEarthAsBodyA ? (
+              <div className="locked-body">{BODY_BY_ID.earth.name}</div>
+            ) : (
+              <select
+                value={eventBodyA}
+                onChange={(event) => onEventBodyAChange(event.target.value as BodyId)}
+              >
+                {BODIES.map((body) => (
+                  <option key={body.id} value={body.id}>
+                    {body.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </label>
+          <label className="field">
+            <span>{locksEarthAsBodyA ? "Target" : "Body B"}</span>
+            <select
+              value={eventBodyB}
+              onChange={(event) => onEventBodyBChange(event.target.value as BodyId)}
+            >
+              {bodyBOptions.map((bodyId) => (
+                <option key={bodyId} value={bodyId}>
+                  {BODY_BY_ID[bodyId].name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {!eventPairIsValid ? (
+          <p className="status-text">Choose a valid body pair for this event type.</p>
+        ) : null}
+
+        <button type="button" className="next-event-button" disabled={searchDisabled} onClick={onNextEvent}>
+          {isSearching ? "Searching..." : "Next event"}
         </button>
+        {eventStatus ? <p className="status-text">{eventStatus}</p> : null}
 
         {eventResult ? (
           <div className="event-card">
-            <strong>
-              {BODY_BY_ID[eventResult.bodyA].name} to {BODY_BY_ID[eventResult.bodyB].name}
-            </strong>
+            <strong>{formatEventTitle(eventResult, eventType)}</strong>
             <span>{formatDate(eventResult.time)} UTC</span>
-            <span>{formatDistance(eventResult.distanceKm)} km</span>
-            <small>
-              {eventResult.distanceAu.toFixed(4)} AU, refined to about{" "}
-              {(eventResult.refinementStepDays * 24).toFixed(0)} hour steps.
-            </small>
+            {eventResult.distanceKm && eventResult.distanceAu ? (
+              <>
+                <span>{formatDistance(eventResult.distanceKm)} km</span>
+                <small>{eventResult.distanceAu.toFixed(4)} AU</small>
+              </>
+            ) : null}
+            {eventResult.angleDeg !== null && eventResult.angleDeg !== undefined ? (
+              <small>
+                {eventResult.type === "transit" || eventType === "transit"
+                  ? "Sun separation"
+                  : "Angle"}
+                : {eventResult.angleDeg.toFixed(3)} deg
+              </small>
+            ) : null}
+            {eventResult.magnitude !== null && eventResult.magnitude !== undefined ? (
+              <small>Magnitude: {eventResult.magnitude.toFixed(2)}</small>
+            ) : null}
+            {eventResult.source ? <small>Source: {formatSource(eventResult.source)}</small> : null}
+            {eventResult.validationStatus === "validated" ? <small>Validated</small> : null}
+            {eventResult.validationStatus === "pending" || eventResult.validationStatus === "failed" ? (
+              <small>Pending</small>
+            ) : null}
           </div>
         ) : null}
+
+        <div className="events-section-footer">
+          <button
+            type="button"
+            className="text-link-button"
+            onClick={() => setShowValidatedEvents(true)}
+          >
+            All validated events
+          </button>
+        </div>
       </section>
 
-      <section className="control-section note">
-        <h2>Next backend candidates</h2>
-        <p>
-          Add Spring Boot later for saved scenarios, precomputed event catalogs, or
-          JPL Horizons validation. The current browser API is shaped so it can be
-          replaced by REST calls without changing the renderer.
-        </p>
-      </section>
+      {showValidatedEvents ? (
+        <ValidatedEventsOverlay onClose={() => setShowValidatedEvents(false)} />
+      ) : null}
     </aside>
   );
+}
+
+function formatEventTitle(
+  eventResult: EventResultView,
+  eventType: ApiCatalogEventType,
+) {
+  const type = "type" in eventResult && eventResult.type ? eventResult.type : eventType;
+
+  if (locksEarthAsBodyA(type)) {
+    const target = eventResult.bodyA === "earth" ? eventResult.bodyB : eventResult.bodyA;
+    return `${formatEventTypeLabel(type)}: ${BODY_BY_ID[target].name} (from Earth)`;
+  }
+
+  return `${formatEventTypeLabel(type)}: ${BODY_BY_ID[eventResult.bodyA].name} to ${BODY_BY_ID[eventResult.bodyB].name}`;
 }
 
 function formatDate(time: Date) {
@@ -152,6 +307,17 @@ function formatDistance(distanceKm: number) {
   }
 
   return Math.round(distanceKm).toLocaleString();
+}
+
+function formatSource(source: string) {
+  switch (source) {
+    case "JPL_HORIZONS":
+      return "JPL";
+    case "VSOP87A_APPROX":
+      return "VSOP87A";
+    default:
+      return source.replace(/_/g, " ");
+  }
 }
 
 function toDateTimeLocalValue(time: Date) {
