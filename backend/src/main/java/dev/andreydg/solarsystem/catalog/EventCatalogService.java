@@ -32,6 +32,10 @@ public class EventCatalogService {
         BASE_MAGNITUDE.put(BodyId.SATURN, -8.9);
         BASE_MAGNITUDE.put(BodyId.URANUS, -7.2);
         BASE_MAGNITUDE.put(BodyId.NEPTUNE, -6.9);
+        BASE_MAGNITUDE.put(BodyId.CERES, 3.34);
+        BASE_MAGNITUDE.put(BodyId.VESTA, 3.20);
+        BASE_MAGNITUDE.put(BodyId.HALLEY, 4.0);
+        BASE_MAGNITUDE.put(BodyId.ENCKE, 14.5);
     }
 
     private final CompositeEphemerisProvider ephemerisProvider;
