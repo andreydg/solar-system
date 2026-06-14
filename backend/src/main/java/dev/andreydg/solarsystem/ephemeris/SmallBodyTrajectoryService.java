@@ -92,7 +92,8 @@ public class SmallBodyTrajectoryService {
         return first.timeUtc().plus(Duration.ofDays(offsetDays));
     }
 
-    private static Optional<Vector3Au> interpolateWithinRange(List<TrajectorySample> trajectory, Instant timeUtc) {
+    // Package-private so unit tests in this package can exercise the interpolation algorithm directly.
+    static Optional<Vector3Au> interpolateWithinRange(List<TrajectorySample> trajectory, Instant timeUtc) {
         if (trajectory.isEmpty()) {
             return Optional.empty();
         }

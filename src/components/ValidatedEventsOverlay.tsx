@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { AU_KM, BODIES, BODY_BY_ID, type BodyId } from "../domain/solarSystem";
+import { BODIES, type BodyId } from "../domain/solarSystem";
 import {
   EVENT_TYPES,
-  formatEventTypeLabel,
-  locksEarthAsBodyA,
   type CatalogEventType,
 } from "../domain/eventTypes";
 import { getValidatedEvents, type CatalogEventResult } from "../lib/eventCatalogApi";
+import { formatDate, formatDistance, formatEventTitle } from "../lib/formatters";
 
 type ValidatedEventsOverlayProps = {
   onClose: () => void;
@@ -195,34 +194,4 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
       </div>
     </div>
   );
-}
-
-function formatEventTitle(event: CatalogEventResult) {
-  if (event.type === "perihelion") {
-    const target = event.bodyA === "earth" ? event.bodyB : event.bodyA;
-    return `${formatEventTypeLabel(event.type)}: ${BODY_BY_ID[target].name}`;
-  }
-
-  if (locksEarthAsBodyA(event.type)) {
-    const target = event.bodyA === "earth" ? event.bodyB : event.bodyA;
-    return `${formatEventTypeLabel(event.type)}: ${BODY_BY_ID[target].name} (from Earth)`;
-  }
-
-  return `${formatEventTypeLabel(event.type)}: ${BODY_BY_ID[event.bodyA].name} to ${BODY_BY_ID[event.bodyB].name}`;
-}
-
-function formatDate(time: Date) {
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  }).format(time);
-}
-
-function formatDistance(distanceKm: number) {
-  if (distanceKm > AU_KM) {
-    return `${(distanceKm / 1_000_000).toFixed(1)} million`;
-  }
-
-  return Math.round(distanceKm).toLocaleString();
 }

@@ -1,5 +1,6 @@
 import type { CatalogEventType } from "../domain/eventTypes";
 import type { BodyId } from "../domain/solarSystem";
+import { addYears } from "../lib/timeUtils";
 
 export type { CatalogEventType };
 
@@ -176,12 +177,6 @@ function toCatalogEventResult(event: ApiEvent): CatalogEventResult {
     validatedSource: event.validatedSource,
     validationStatus: event.validationStatus,
   };
-}
-
-function addYears(time: Date, years: number) {
-  const next = new Date(time);
-  next.setUTCFullYear(next.getUTCFullYear() + years);
-  return next;
 }
 
 function minDate(left: Date, right: Date) {
