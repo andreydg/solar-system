@@ -12,6 +12,8 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
@@ -106,8 +108,8 @@ public class EventCatalogService {
             .toList();
 
         List<CatalogEvent> existingEvents = repository.find(type, bodyA, bodyB, from, to);
-        java.util.Map<String, CatalogEvent> existingById = existingEvents.stream()
-            .collect(java.util.stream.Collectors.toMap(CatalogEvent::id, e -> e, (first, second) -> first));
+        Map<String, CatalogEvent> existingById = existingEvents.stream()
+            .collect(Collectors.toMap(CatalogEvent::id, e -> e, (first, second) -> first));
 
         List<CatalogEvent> eventsToStore = validEvents.stream()
             .filter(event -> !existingById.containsKey(event.id()))
@@ -202,7 +204,7 @@ public class EventCatalogService {
         return updated;
     }
 
-    public java.util.Optional<CatalogEvent> findById(String id) {
+    public Optional<CatalogEvent> findById(String id) {
         return repository.findById(id);
     }
 

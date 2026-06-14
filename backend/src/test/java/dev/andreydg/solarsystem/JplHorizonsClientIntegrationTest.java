@@ -7,10 +7,12 @@ import dev.andreydg.solarsystem.jpl.JplHorizonsClient;
 import dev.andreydg.solarsystem.jpl.JplVector;
 import java.time.Instant;
 import java.util.List;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+@Tag("integration")
 @SpringBootTest(properties = {
     "solar-system.storage=in-memory",
     "solar-system.jpl.async-validation-enabled=false"
