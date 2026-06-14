@@ -68,9 +68,8 @@ function resolveQueryTime(
   time: Date,
   orbitDays: number,
 ): Date {
-  const sorted = sortTrajectory(trajectory);
-  const first = sorted[0];
-  const last = sorted[sorted.length - 1];
+  const first = trajectory[0];
+  const last = trajectory[trajectory.length - 1];
 
   if (time.getTime() >= first.time.getTime() && time.getTime() <= last.time.getTime()) {
     return time;
@@ -90,33 +89,47 @@ function resolveQueryTime(
 }
 
 function interpolateAtTime(trajectory: SmallBodyTrajectory, time: Date): Vec3 {
-  const sorted = sortTrajectory(trajectory);
   const targetMs = time.getTime();
-  const last = sorted[sorted.length - 1];
+  const n = trajectory.length;
+  if (n === 0) return { x: 0, y: 0, z: 0 };
+  if (n === 1) return trajectory[0].positionAu;
 
-  for (let index = 0; index < sorted.length - 1; index += 1) {
-    const start = sorted[index];
-    const end = sorted[index + 1];
-    const startMs = start.time.getTime();
-    const endMs = end.time.getTime();
+  const firstMs = trajectory[0].time.getTime();
+  const lastMs = trajectory[n - 1].time.getTime();
 
-    if (targetMs < startMs || targetMs > endMs) {
-      continue;
+  if (targetMs <= firstMs) return trajectory[0].positionAu;
+  if (targetMs >= lastMs) return trajectory[n - 1].positionAu;
+
+  // Binary search to find index such that trajectory[index].time.getTime() <= targetMs && targetMs <= trajectory[index+1].time.getTime()
+  let low = 0;
+  let high = n - 2;
+  let index = 0;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (trajectory[mid].time.getTime() <= targetMs) {
+      index = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
     }
-
-    if (endMs === startMs) {
-      return start.positionAu;
-    }
-
-    const ratio = (targetMs - startMs) / (endMs - startMs);
-    return {
-      x: start.positionAu.x + ratio * (end.positionAu.x - start.positionAu.x),
-      y: start.positionAu.y + ratio * (end.positionAu.y - start.positionAu.y),
-      z: start.positionAu.z + ratio * (end.positionAu.z - start.positionAu.z),
-    };
   }
 
-  return last.positionAu;
+  const start = trajectory[index];
+  const end = trajectory[index + 1];
+  const startMs = start.time.getTime();
+  const endMs = end.time.getTime();
+
+  if (endMs === startMs) {
+    return start.positionAu;
+  }
+
+  const ratio = (targetMs - startMs) / (endMs - startMs);
+  return {
+    x: start.positionAu.x + ratio * (end.positionAu.x - start.positionAu.x),
+    y: start.positionAu.y + ratio * (end.positionAu.y - start.positionAu.y),
+    z: start.positionAu.z + ratio * (end.positionAu.z - start.positionAu.z),
+  };
 }
 
 export function interpolateTrajectory(
@@ -132,9 +145,8 @@ export function interpolateTrajectory(
   const queryTime =
     orbitDays !== null ? resolveQueryTime(trajectory, time, orbitDays) : time;
 
-  const sorted = sortTrajectory(trajectory);
-  const first = sorted[0];
-  const last = sorted[sorted.length - 1];
+  const first = trajectory[0];
+  const last = trajectory[trajectory.length - 1];
   if (
     orbitDays === null &&
     (queryTime.getTime() < first.time.getTime() || queryTime.getTime() > last.time.getTime())
@@ -146,15 +158,14 @@ export function interpolateTrajectory(
 }
 
 export function trajectoryCoversTime(trajectory: SmallBodyTrajectory, time: Date): boolean {
-  const sorted = sortTrajectory(trajectory);
-  if (sorted.length === 0) {
+  if (trajectory.length === 0) {
     return false;
   }
 
   const targetMs = time.getTime();
   return (
-    targetMs >= sorted[0].time.getTime() &&
-    targetMs <= sorted[sorted.length - 1].time.getTime()
+    targetMs >= trajectory[0].time.getTime() &&
+    targetMs <= trajectory[trajectory.length - 1].time.getTime()
   );
 }
 

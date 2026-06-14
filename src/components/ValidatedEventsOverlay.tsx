@@ -67,11 +67,11 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
         return false;
       }
 
-      if (filterBodyA !== ALL_FILTER && event.bodyA !== filterBodyA) {
+      if (filterBodyA !== ALL_FILTER && event.bodyA !== filterBodyA && event.bodyB !== filterBodyA) {
         return false;
       }
 
-      if (filterBodyB !== ALL_FILTER && event.bodyB !== filterBodyB) {
+      if (filterBodyB !== ALL_FILTER && event.bodyA !== filterBodyB && event.bodyB !== filterBodyB) {
         return false;
       }
 
