@@ -20,9 +20,11 @@ public class CatalogOptionsController {
                 .map(BodyId::apiValue)
                 .toList(),
             List.of(
-                "Closest and farthest approaches support any two major planets.",
+                "Closest and farthest approaches support any two catalog bodies.",
                 "Earth-observer events require Earth and one target body.",
-                "Greatest elongation and transit require Mercury or Venus."
+                "Greatest elongation and transit require Mercury or Venus.",
+                "Perihelion requires Earth and a small body (Ceres, Vesta, Encke, or Halley).",
+                "Small-body positions are computed with JPL Horizons."
             )
         );
     }

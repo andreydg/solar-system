@@ -1,5 +1,6 @@
 import { useState } from "react";
 import ValidatedEventsOverlay from "./ValidatedEventsOverlay";
+import EventTypesOverlay from "./EventTypesOverlay";
 import {
   AU_KM,
   BODIES,
@@ -14,6 +15,7 @@ import {
   type CatalogEventType,
 } from "../domain/eventTypes";
 import type { CatalogEventType as ApiCatalogEventType } from "../lib/eventCatalogApi";
+import { isJplSource } from "../lib/eventCatalogApi";
 import type { CSSProperties } from "react";
 
 type ControlPanelProps = {
@@ -42,6 +44,7 @@ type ControlPanelProps = {
 type CatalogMetadata = {
   id: string;
   source: string;
+  computedSource?: string;
   jplCheckedAtUtc: Date | null;
   jplDeltaKm: number | null;
   jplRawSummary: string | null;
@@ -174,22 +177,6 @@ export default function ControlPanel({
           </select>
         </label>
 
-        {showEventHelp ? (
-          <div className="info-popover" role="dialog" aria-label="Event type descriptions">
-            <div className="info-popover-list">
-              {EVENT_TYPES.map((type) => (
-                <div
-                  className={`info-popover-item${type.id === eventType ? " info-popover-item-selected" : ""}`}
-                  key={type.id}
-                >
-                  <strong>{type.label}</strong>
-                  <span>{type.description}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
         <div className="event-select-grid">
           <label className="field">
             <span>{locksEarthAsBodyA ? "Observer" : "Body A"}</span>
@@ -239,7 +226,12 @@ export default function ControlPanel({
             {eventResult.distanceKm && eventResult.distanceAu ? (
               <>
                 <span>{formatDistance(eventResult.distanceKm)} km</span>
-                <small>{eventResult.distanceAu.toFixed(4)} AU</small>
+                <small>
+                  {eventResult.type === "perihelion" || eventType === "perihelion"
+                    ? "Sun distance"
+                    : "Separation"}
+                  : {eventResult.distanceAu.toFixed(4)} AU
+                </small>
               </>
             ) : null}
             {eventResult.angleDeg !== null && eventResult.angleDeg !== undefined ? (
@@ -255,7 +247,9 @@ export default function ControlPanel({
             ) : null}
             {eventResult.source ? <small>Source: {formatSource(eventResult.source)}</small> : null}
             {eventResult.validationStatus === "validated" ? <small>Validated</small> : null}
-            {eventResult.validationStatus === "pending" || eventResult.validationStatus === "failed" ? (
+            {!isJplSource(eventResult.source) &&
+            !isJplSource(eventResult.computedSource) &&
+            (eventResult.validationStatus === "pending" || eventResult.validationStatus === "failed") ? (
               <small>Validation pending</small>
             ) : null}
           </div>
@@ -272,6 +266,10 @@ export default function ControlPanel({
         </div>
       </section>
 
+      {showEventHelp ? (
+        <EventTypesOverlay selectedType={eventType} onClose={() => setShowEventHelp(false)} />
+      ) : null}
+
       {showValidatedEvents ? (
         <ValidatedEventsOverlay onClose={() => setShowValidatedEvents(false)} />
       ) : null}
@@ -284,6 +282,11 @@ function formatEventTitle(
   eventType: ApiCatalogEventType,
 ) {
   const type = "type" in eventResult && eventResult.type ? eventResult.type : eventType;
+
+  if (type === "perihelion") {
+    const target = eventResult.bodyA === "earth" ? eventResult.bodyB : eventResult.bodyA;
+    return `${formatEventTypeLabel(type)}: ${BODY_BY_ID[target].name}`;
+  }
 
   if (locksEarthAsBodyA(type)) {
     const target = eventResult.bodyA === "earth" ? eventResult.bodyB : eventResult.bodyA;

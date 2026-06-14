@@ -12,7 +12,8 @@ public enum EventType {
     RETROGRADE_START,
     RETROGRADE_END,
     TRANSIT,
-    BRIGHTEST_APPROACH;
+    BRIGHTEST_APPROACH,
+    PERIHELION;
 
     public static EventType fromApiValue(String value) {
         return switch (value.trim().toLowerCase(Locale.ROOT)) {
@@ -26,6 +27,7 @@ public enum EventType {
             case "retrogradeend", "retrograde_end", "retrograde-end" -> RETROGRADE_END;
             case "transit" -> TRANSIT;
             case "brightestapproach", "brightest_approach", "brightest-approach" -> BRIGHTEST_APPROACH;
+            case "perihelion" -> PERIHELION;
             default -> throw new IllegalArgumentException("Unsupported event type: " + value);
         };
     }
@@ -42,12 +44,13 @@ public enum EventType {
             case RETROGRADE_END -> "retrogradeEnd";
             case TRANSIT -> "transit";
             case BRIGHTEST_APPROACH -> "brightestApproach";
+            case PERIHELION -> "perihelion";
         };
     }
 
     public boolean supportsJplValidation() {
         return switch (this) {
-            case CLOSEST_APPROACH, FARTHEST_APPROACH, OPPOSITION, CONJUNCTION, GREATEST_ELONGATION -> true;
+            case CLOSEST_APPROACH, FARTHEST_APPROACH, OPPOSITION, CONJUNCTION, GREATEST_ELONGATION, PERIHELION -> true;
             default -> false;
         };
     }

@@ -1,5 +1,6 @@
 package dev.andreydg.solarsystem.catalog;
 
+import dev.andreydg.solarsystem.ephemeris.CompositeEphemerisProvider;
 import dev.andreydg.solarsystem.ephemeris.EphemerisProvider;
 import dev.andreydg.solarsystem.ephemeris.Vector3Au;
 import dev.andreydg.solarsystem.storage.EventCatalogRepository;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Service;
 public class EventCatalogService {
     public static final double AU_KM = 149_597_870.7;
     private static final Duration DEFAULT_COARSE_STEP = Duration.ofDays(5);
+    private static final Duration PERIHELION_COARSE_STEP = Duration.ofDays(90);
     private static final Duration DAILY_STEP = Duration.ofDays(1);
     private static final double TRANSIT_ELONGATION_DEG = 0.5;
     private static final Map<BodyId, Double> BASE_MAGNITUDE = new EnumMap<>(BodyId.class);
@@ -32,12 +34,12 @@ public class EventCatalogService {
         BASE_MAGNITUDE.put(BodyId.NEPTUNE, -6.9);
     }
 
-    private final EphemerisProvider ephemerisProvider;
+    private final CompositeEphemerisProvider ephemerisProvider;
     private final EventCatalogRepository repository;
     private final ApplicationEventPublisher eventPublisher;
 
     public EventCatalogService(
-        EphemerisProvider ephemerisProvider,
+        CompositeEphemerisProvider ephemerisProvider,
         EventCatalogRepository repository,
         ApplicationEventPublisher eventPublisher
     ) {
@@ -90,6 +92,7 @@ public class EventCatalogService {
             case RETROGRADE_END -> generateMotionEvents(EventType.RETROGRADE_END, pair, from, to, MotionCrossing.NEGATIVE_TO_POSITIVE);
             case TRANSIT -> generateTransits(pair, from, to);
             case BRIGHTEST_APPROACH -> generateBrightestApproaches(pair, from, to);
+            case PERIHELION -> generatePerihelions(pair, from, to);
         };
 
         List<CatalogEvent> validEvents = events.stream()
@@ -194,10 +197,11 @@ public class EventCatalogService {
         boolean findMinimum
     ) {
         List<DistanceSample> candidates = new ArrayList<>();
+        Duration coarseStep = coarseStepFor(bodyA, bodyB, from, to);
         DistanceSample previous = null;
         DistanceSample current = sampleDistance(bodyA, bodyB, from);
 
-        for (Instant time = from.plus(DEFAULT_COARSE_STEP); !time.isAfter(to); time = time.plus(DEFAULT_COARSE_STEP)) {
+        for (Instant time = from.plus(coarseStep); !time.isAfter(to); time = time.plus(coarseStep)) {
             DistanceSample next = sampleDistance(bodyA, bodyB, time);
 
             if (previous != null && isLocalExtremum(previous, current, next, findMinimum)) {
@@ -217,8 +221,8 @@ public class EventCatalogService {
             .map(candidate -> refineDistanceExtremum(
                 bodyA,
                 bodyB,
-                candidate.time().minus(DEFAULT_COARSE_STEP.multipliedBy(2)),
-                candidate.time().plus(DEFAULT_COARSE_STEP.multipliedBy(2)),
+                candidate.time().minus(coarseStep.multipliedBy(2)),
+                candidate.time().plus(coarseStep.multipliedBy(2)),
                 Duration.ofHours(1),
                 findMinimum
             ))
@@ -423,7 +427,8 @@ public class EventCatalogService {
         MagnitudeSample previous = null;
         MagnitudeSample current = sampleVisualMagnitude(target, from);
 
-        for (Instant time = from.plus(DEFAULT_COARSE_STEP); !time.isAfter(to); time = time.plus(DEFAULT_COARSE_STEP)) {
+        Duration coarseStep = coarseStepFor(BodyId.EARTH, target, from, to);
+        for (Instant time = from.plus(coarseStep); !time.isAfter(to); time = time.plus(coarseStep)) {
             MagnitudeSample next = sampleVisualMagnitude(target, time);
 
             if (previous != null
@@ -440,8 +445,8 @@ public class EventCatalogService {
         return candidates.stream()
             .map(sample -> refineMagnitudeMinimum(
                 target,
-                sample.time().minus(DEFAULT_COARSE_STEP.multipliedBy(2)),
-                sample.time().plus(DEFAULT_COARSE_STEP.multipliedBy(2))
+                sample.time().minus(coarseStep.multipliedBy(2)),
+                sample.time().plus(coarseStep.multipliedBy(2))
             ))
             .map(sample -> toEvent(
                 EventType.BRIGHTEST_APPROACH,
@@ -454,6 +459,63 @@ public class EventCatalogService {
                 null,
                 null,
                 sample.magnitude()
+            ))
+            .sorted(Comparator.comparing(CatalogEvent::displayTimeUtc))
+            .toList();
+    }
+
+    private List<CatalogEvent> generatePerihelions(BodyPair pair, Instant from, Instant to) {
+        BodyPair earthPair = earthObserverPair(pair);
+        BodyId target = targetBody(earthPair);
+        requireSmallBody(target);
+
+        List<DistanceSample> samples = ephemerisProvider
+            .heliocentricDistanceSamples(target, from, to, PERIHELION_COARSE_STEP)
+            .stream()
+            .map(sample -> new DistanceSample(sample.timeUtc(), sample.distanceAu()))
+            .toList();
+
+        if (samples.isEmpty()) {
+            return List.of();
+        }
+
+        List<DistanceSample> candidates = new ArrayList<>();
+        for (int index = 1; index < samples.size() - 1; index++) {
+            DistanceSample previous = samples.get(index - 1);
+            DistanceSample current = samples.get(index);
+            DistanceSample next = samples.get(index + 1);
+
+            if (isLocalExtremum(previous, current, next, true)) {
+                candidates.add(current);
+            }
+        }
+
+        if (candidates.isEmpty()) {
+            candidates.add(refineHeliocentricMinimum(target, from, to, Duration.ofHours(6)));
+        }
+
+        candidates = dedupePerihelionCandidates(candidates);
+
+        Instant generatedAt = Instant.now();
+        return candidates.stream()
+            .map(candidate -> refineHeliocentricMinimum(
+                target,
+                candidate.time().minus(PERIHELION_COARSE_STEP.multipliedBy(2)),
+                candidate.time().plus(PERIHELION_COARSE_STEP.multipliedBy(2)),
+                Duration.ofHours(6)
+            ))
+            .distinct()
+            .map(sample -> toEvent(
+                EventType.PERIHELION,
+                earthPair.bodyA(),
+                earthPair.bodyB(),
+                from,
+                to,
+                generatedAt,
+                sample.time(),
+                sample.distanceAu(),
+                null,
+                null
             ))
             .sorted(Comparator.comparing(CatalogEvent::displayTimeUtc))
             .toList();
@@ -480,7 +542,7 @@ public class EventCatalogService {
             distanceAu,
             angleDeg,
             magnitude,
-            ephemerisProvider.source(),
+            eventSource(bodyA, bodyB),
             null,
             null,
             null,
@@ -542,6 +604,55 @@ public class EventCatalogService {
         Vector3Au positionA = ephemerisProvider.heliocentricPosition(bodyA, time);
         Vector3Au positionB = ephemerisProvider.heliocentricPosition(bodyB, time);
         return new DistanceSample(time, positionA.distanceTo(positionB));
+    }
+
+    private DistanceSample sampleHeliocentricDistance(BodyId body, Instant time) {
+        Vector3Au position = ephemerisProvider.heliocentricPosition(body, time);
+        return new DistanceSample(time, position.magnitude());
+    }
+
+    private DistanceSample refineHeliocentricMinimum(BodyId body, Instant start, Instant end, Duration step) {
+        return ephemerisProvider.heliocentricDistanceSamples(body, start, end, step).stream()
+            .map(sample -> new DistanceSample(sample.timeUtc(), sample.distanceAu()))
+            .min(Comparator.comparingDouble(DistanceSample::distanceAu))
+            .orElseGet(() -> sampleHeliocentricDistance(body, start));
+    }
+
+    private List<DistanceSample> dedupePerihelionCandidates(List<DistanceSample> candidates) {
+        List<DistanceSample> sorted = candidates.stream()
+            .sorted(Comparator.comparing(DistanceSample::time))
+            .toList();
+
+        List<DistanceSample> deduped = new ArrayList<>();
+        for (DistanceSample candidate : sorted) {
+            if (deduped.isEmpty()) {
+                deduped.add(candidate);
+                continue;
+            }
+
+            DistanceSample previous = deduped.getLast();
+            if (Duration.between(previous.time(), candidate.time()).compareTo(PERIHELION_COARSE_STEP.multipliedBy(4)) <= 0) {
+                if (candidate.distanceAu() < previous.distanceAu()) {
+                    deduped.set(deduped.size() - 1, candidate);
+                }
+            } else {
+                deduped.add(candidate);
+            }
+        }
+
+        return deduped;
+    }
+
+    private String eventSource(BodyId bodyA, BodyId bodyB) {
+        if (bodyA.isSmallBody()) {
+            return ephemerisProvider.sourceFor(bodyA);
+        }
+
+        if (bodyB.isSmallBody()) {
+            return ephemerisProvider.sourceFor(bodyB);
+        }
+
+        return ephemerisProvider.sourceFor(bodyA);
     }
 
     private ElongationSample sampleElongation(BodyId target, Instant time) {
@@ -728,6 +839,33 @@ public class EventCatalogService {
         return diff > 180.0 ? diff - 360.0 : diff;
     }
 
+    private static Duration coarseStepFor(BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
+        long rangeDays = Duration.between(from, to).toDays();
+        boolean hasSmallBody = bodyA.isSmallBody() || bodyB.isSmallBody();
+
+        if (hasSmallBody) {
+            if (rangeDays > 3650) {
+                return Duration.ofDays(30);
+            }
+
+            if (rangeDays > 365) {
+                return Duration.ofDays(15);
+            }
+
+            return DEFAULT_COARSE_STEP;
+        }
+
+        if (rangeDays > 3650) {
+            return Duration.ofDays(30);
+        }
+
+        if (rangeDays > 730) {
+            return Duration.ofDays(10);
+        }
+
+        return DEFAULT_COARSE_STEP;
+    }
+
     private static String deterministicId(EventType type, BodyId bodyA, BodyId bodyB, Instant time) {
         return "%s_%s_%s_%s".formatted(
             type.apiValue(),
@@ -744,6 +882,12 @@ public class EventCatalogService {
     private static void requireInnerPlanet(BodyId target) {
         if (target != BodyId.MERCURY && target != BodyId.VENUS) {
             throw new IllegalArgumentException("Inner-planet events require Mercury or Venus");
+        }
+    }
+
+    private static void requireSmallBody(BodyId target) {
+        if (!target.isSmallBody()) {
+            throw new IllegalArgumentException("Small-body events require Ceres, Vesta, Encke, or Halley");
         }
     }
 

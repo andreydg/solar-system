@@ -2,6 +2,8 @@ node_modules
 dist
 .vite
 backend/target
+backend/data
+data/trajectories/*.json
 .DS_Store
 *.local
 *.tsbuildinfo

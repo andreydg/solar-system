@@ -1,8 +1,10 @@
 import { Canvas, useThree } from "@react-three/fiber";
 import { Html, Line, OrbitControls, Stars } from "@react-three/drei";
 import { useEffect, useMemo, useRef } from "react";
-import { BODIES, BODY_BY_ID, type BodyId, type BodyPosition, type Vec3 } from "../domain/solarSystem";
+import * as THREE from "three";
+import { BODIES, BODY_BY_ID, type BodyId, type BodyPosition, type Vec3, distanceAu, isComet, isSmallBody } from "../domain/solarSystem";
 import { sampleTrajectory } from "../lib/ephemeris";
+import { chunkScenePoints, buildOrbitTrailSegments, type SmallBodyTrajectory } from "../lib/smallBodyTrajectory";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 const AU_TO_SCENE_UNITS = 3.2;
@@ -13,12 +15,16 @@ type SolarSystemSceneProps = {
   currentTime: Date;
   highlightedBodies: BodyId[];
   positions: BodyPosition[];
+  smallBodyTrajectories: Partial<Record<BodyId, SmallBodyTrajectory>>;
+  visibleBodies: BodyId[];
 };
 
 export default function SolarSystemScene({
   currentTime,
   highlightedBodies,
   positions,
+  smallBodyTrajectories,
+  visibleBodies,
 }: SolarSystemSceneProps) {
   const highlightedSet = useMemo(() => new Set(highlightedBodies), [highlightedBodies]);
 
@@ -30,15 +36,26 @@ export default function SolarSystemScene({
       <Stars count={3500} depth={80} factor={4} fade radius={120} speed={0.25} />
 
       <Sun />
-      <OrbitTrails visibleBodyIds={positions.map((position) => position.body)} />
+      <OrbitTrails
+        smallBodyTrajectories={smallBodyTrajectories}
+        visibleBodies={visibleBodies}
+      />
       <EventPairLine highlightedBodies={highlightedBodies} positions={positions} />
-      {positions.map((position) => (
-        <Planet
-          highlighted={highlightedSet.has(position.body)}
-          key={position.body}
-          position={position}
-        />
-      ))}
+      {positions.map((position) =>
+        isComet(position.body) ? (
+          <Comet
+            highlighted={highlightedSet.has(position.body)}
+            key={position.body}
+            position={position}
+          />
+        ) : (
+          <Planet
+            highlighted={highlightedSet.has(position.body)}
+            key={position.body}
+            position={position}
+          />
+        ),
+      )}
 
       <Html position={[-18, 14, -18]} transform>
         <div className="scene-date">{currentTime.toISOString().slice(0, 10)}</div>
@@ -62,12 +79,18 @@ function Sun() {
   );
 }
 
-function OrbitTrails({ visibleBodyIds }: { visibleBodyIds: string[] }) {
-  const visibleSet = useMemo(() => new Set(visibleBodyIds), [visibleBodyIds]);
+function OrbitTrails({
+  smallBodyTrajectories,
+  visibleBodies,
+}: {
+  smallBodyTrajectories: Partial<Record<BodyId, SmallBodyTrajectory>>;
+  visibleBodies: BodyId[];
+}) {
+  const visibleSet = useMemo(() => new Set(visibleBodies), [visibleBodies]);
 
   const trails = useMemo(
     () =>
-      BODIES.map((body) => {
+      BODIES.filter((body) => !isSmallBody(body.id)).map((body) => {
         const halfOrbitDays = body.orbitDays / 2;
         const start = addDays(TRAIL_EPOCH, -halfOrbitDays);
         const end = addDays(TRAIL_EPOCH, halfOrbitDays);
@@ -79,6 +102,22 @@ function OrbitTrails({ visibleBodyIds }: { visibleBodyIds: string[] }) {
         };
       }),
     [],
+  );
+
+  const smallBodyTrailLines = useMemo(
+    () =>
+      BODIES.filter((body) => isSmallBody(body.id))
+        .map((body) => {
+          const segments = buildOrbitTrailSegments(smallBodyTrajectories[body.id] ?? []);
+          return {
+            body,
+            segmentGroups: segments.flatMap((segment) =>
+              chunkScenePoints(segment.map(toScenePoint)).map((points) => ({ body, points })),
+            ),
+          };
+        })
+        .filter(({ segmentGroups }) => segmentGroups.length > 0),
+    [smallBodyTrajectories],
   );
 
   return (
@@ -95,14 +134,101 @@ function OrbitTrails({ visibleBodyIds }: { visibleBodyIds: string[] }) {
             transparent
           />
         ))}
+      {smallBodyTrailLines
+        .filter(({ body }) => visibleSet.has(body.id))
+        .flatMap(({ segmentGroups }) =>
+          segmentGroups.map(({ body, points }, index) => (
+            <Line
+              color={body.color}
+              key={`${body.id}-trail-${index}`}
+              lineWidth={1}
+              opacity={0.32}
+              points={points}
+              transparent
+            />
+          )),
+        )}
     </>
+  );
+}
+
+function Comet({ highlighted, position }: { highlighted: boolean; position: BodyPosition }) {
+  const body = BODY_BY_ID[position.body];
+  const scenePosition = toScenePoint(position.positionAu);
+  const nucleusRadius = getVisualRadius(body.radiusKm, highlighted, true);
+  const distanceAu = Math.hypot(
+    position.positionAu.x,
+    position.positionAu.y,
+    position.positionAu.z,
+  );
+  const tailLength = Math.min(3.4, Math.max(0.9, 1.35 / Math.max(distanceAu, 0.25))) * AU_TO_SCENE_UNITS;
+  const tailWidth = nucleusRadius * 1.8;
+  const tailDirection = normalizeVector(scenePosition);
+  const tailQuaternion = useMemo(() => {
+    const quaternion = new THREE.Quaternion();
+    quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(...tailDirection),
+    );
+    return quaternion;
+  }, [tailDirection]);
+
+  return (
+    <group position={scenePosition}>
+      {highlighted ? (
+        <>
+          <mesh>
+            <sphereGeometry args={[nucleusRadius * 2.4, 24, 24]} />
+            <meshBasicMaterial color={body.color} opacity={0.14} transparent />
+          </mesh>
+          <mesh rotation={[Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[nucleusRadius * 1.35, nucleusRadius * 1.65, 48]} />
+            <meshBasicMaterial color={body.color} opacity={0.85} transparent />
+          </mesh>
+        </>
+      ) : null}
+      <mesh position={scaleVector(tailDirection, tailLength * 0.45)} quaternion={tailQuaternion}>
+        <coneGeometry args={[tailWidth, tailLength, 24, 1, true]} />
+        <meshBasicMaterial
+          color={body.color}
+          opacity={0.42}
+          transparent
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      <mesh position={scaleVector(tailDirection, tailLength * 0.72)} quaternion={tailQuaternion}>
+        <coneGeometry args={[tailWidth * 0.55, tailLength * 0.75, 20, 1, true]} />
+        <meshBasicMaterial
+          color="#e2e8f0"
+          opacity={0.18}
+          transparent
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      <mesh>
+        <sphereGeometry args={[nucleusRadius, 24, 24]} />
+        <meshStandardMaterial
+          color={body.color}
+          emissive={highlighted ? body.color : "#334155"}
+          emissiveIntensity={highlighted ? 0.55 : 0.25}
+          roughness={0.65}
+        />
+      </mesh>
+      <Html center distanceFactor={10} position={[0, nucleusRadius + 0.42, 0]}>
+        <span className={highlighted ? "planet-label planet-label-highlighted" : "planet-label"}>
+          {body.name}
+        </span>
+      </Html>
+    </group>
   );
 }
 
 function Planet({ highlighted, position }: { highlighted: boolean; position: BodyPosition }) {
   const body = BODY_BY_ID[position.body];
   const scenePosition = toScenePoint(position.positionAu);
-  const visualRadius = getVisualRadius(body.radiusKm, highlighted);
+  const visualRadius = getVisualRadius(body.radiusKm, highlighted, false);
 
   return (
     <group position={scenePosition}>
@@ -160,14 +286,28 @@ function EventPairLine({
     return null;
   }
 
+  const pointA = toScenePoint(first.positionAu);
+  const pointB = toScenePoint(second.positionAu);
+  const separationAu = distanceAu(first.positionAu, second.positionAu);
+  const midpoint: [number, number, number] = [
+    (pointA[0] + pointB[0]) / 2,
+    (pointA[1] + pointB[1]) / 2,
+    (pointA[2] + pointB[2]) / 2,
+  ];
+
   return (
-    <Line
-      color="#93c5fd"
-      lineWidth={1.5}
-      opacity={0.75}
-      points={[toScenePoint(first.positionAu), toScenePoint(second.positionAu)]}
-      transparent
-    />
+    <>
+      <Line
+        color="#93c5fd"
+        lineWidth={1.5}
+        opacity={0.75}
+        points={[pointA, pointB]}
+        transparent
+      />
+      <Html center distanceFactor={14} position={midpoint}>
+        <span className="pair-distance-label">{separationAu.toFixed(4)} AU</span>
+      </Html>
+    </>
   );
 }
 
@@ -233,9 +373,20 @@ function toScenePoint(positionAu: Vec3): [number, number, number] {
   ];
 }
 
-function getVisualRadius(radiusKm: number, highlighted = false) {
-  const base = Math.max(0.11, Math.log10(radiusKm) * 0.09 - 0.22);
-  return highlighted ? Math.max(base * 1.75, 0.3) : base;
+function getVisualRadius(radiusKm: number, highlighted = false, isCometBody = false) {
+  const base = isCometBody
+    ? Math.max(0.28, Math.log10(Math.max(radiusKm, 1)) * 0.12)
+    : Math.max(0.16, Math.log10(Math.max(radiusKm, 0.01)) * 0.09 - 0.12);
+  return highlighted ? Math.max(base * 1.75, isCometBody ? 0.42 : 0.32) : base;
+}
+
+function normalizeVector(vector: [number, number, number]): [number, number, number] {
+  const length = Math.hypot(vector[0], vector[1], vector[2]) || 1;
+  return [vector[0] / length, vector[1] / length, vector[2] / length];
+}
+
+function scaleVector(vector: [number, number, number], scale: number): [number, number, number] {
+  return [vector[0] * scale, vector[1] * scale, vector[2] * scale];
 }
 
 function addDays(time: Date, days: number) {

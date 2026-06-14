@@ -62,8 +62,47 @@ public class JplValidationService {
             case FARTHEST_APPROACH -> validateDistanceExtremum(event, false);
             case OPPOSITION, CONJUNCTION -> validateAngularEvent(event);
             case GREATEST_ELONGATION -> validateElongation(event);
+            case PERIHELION -> validatePerihelion(event);
             default -> event;
         };
+    }
+
+    private CatalogEvent validatePerihelion(CatalogEvent event) {
+        if (event.computedDistanceAu() == null) {
+            throw new JplHorizonsException("Perihelion event did not include computed heliocentric distance");
+        }
+
+        BodyId target = event.bodyA() == BodyId.EARTH ? event.bodyB() : event.bodyA();
+        DistanceSample refinedBest = findJplHeliocentricMinimum(
+            target,
+            event.computedTimeUtc().minus(Duration.ofDays(2)),
+            event.computedTimeUtc().plus(Duration.ofDays(2)),
+            Duration.ofHours(6)
+        );
+        DistanceSample refined = findJplHeliocentricMinimum(
+            target,
+            refinedBest.time().minus(Duration.ofHours(9)),
+            refinedBest.time().plus(Duration.ofHours(9)),
+            Duration.ofHours(1)
+        );
+
+        double deltaKm = Math.abs(refined.distanceAu() - event.computedDistanceAu()) * EventCatalogService.AU_KM;
+        String summary = "JPL corrected perihelion %s at %.8f AU; computed %s at %.8f AU".formatted(
+            refined.time(),
+            refined.distanceAu(),
+            event.computedTimeUtc(),
+            event.computedDistanceAu()
+        );
+
+        return catalogService.storeValidation(
+            event,
+            refined.time(),
+            refined.distanceAu(),
+            null,
+            null,
+            deltaKm,
+            summary
+        );
     }
 
     private CatalogEvent validateDistanceExtremum(CatalogEvent event, boolean findMinimum) {
@@ -194,6 +233,24 @@ public class JplValidationService {
         JplVector vectorA = horizonsClient.vector(bodyA, time);
         JplVector vectorB = horizonsClient.vector(bodyB, time);
         return new DistanceSample(time, vectorA.positionAu().distanceTo(vectorB.positionAu()));
+    }
+
+    private DistanceSample sampleJplHeliocentricDistance(BodyId body, Instant time) {
+        JplVector vector = horizonsClient.vector(body, time);
+        return new DistanceSample(time, vector.positionAu().magnitude());
+    }
+
+    private DistanceSample findJplHeliocentricMinimum(BodyId body, Instant from, Instant to, Duration step) {
+        DistanceSample best = sampleJplHeliocentricDistance(body, from);
+
+        for (Instant time = from.plus(step); !time.isAfter(to); time = time.plus(step)) {
+            DistanceSample sample = sampleJplHeliocentricDistance(body, time);
+            if (sample.distanceAu() < best.distanceAu()) {
+                best = sample;
+            }
+        }
+
+        return new DistanceSample(best.time().truncatedTo(ChronoUnit.SECONDS), best.distanceAu());
     }
 
     private double jplRelativeLongitude(BodyId bodyA, BodyId bodyB, Instant time) {

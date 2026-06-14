@@ -1,6 +1,7 @@
 package dev.andreydg.solarsystem;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.andreydg.solarsystem.catalog.BodyId;
 import dev.andreydg.solarsystem.catalog.EventCatalogService;
@@ -12,7 +13,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 @SpringBootTest(properties = {
     "solar-system.storage=in-memory",
-    "solar-system.jpl.async-validation-enabled=false"
+    "solar-system.jpl.async-validation-enabled=false",
+    "solar-system.trajectories.cache-dir=../data/trajectories",
+    "solar-system.trajectories.refresh-from-jpl=false"
 })
 class EventCatalogServiceTests {
     @Autowired
@@ -81,5 +84,14 @@ class EventCatalogServiceTests {
     @Test
     void listsOnlyValidatedEvents() {
         assertThat(service.listValidatedEvents()).isEmpty();
+    }
+
+    @Test
+    void rejectsPerihelionForMajorPlanets() {
+        Instant from = Instant.parse("2026-01-01T00:00:00Z");
+        Instant to = Instant.parse("2028-12-31T00:00:00Z");
+
+        assertThatThrownBy(() -> service.generate(EventType.PERIHELION, BodyId.EARTH, BodyId.MARS, from, to))
+            .isInstanceOf(IllegalArgumentException.class);
     }
 }
