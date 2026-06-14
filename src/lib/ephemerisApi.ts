@@ -50,7 +50,7 @@ export async function getBackendBodyTrajectory(body: BodyId): Promise<SmallBodyT
   }
 
   const payload = (await response.json()) as TrajectoryPointResponse[];
-  return payload.map((point) => ({
+  const points = payload.map((point) => ({
     time: new Date(point.timeUtc),
     positionAu: {
       x: point.x,
@@ -58,6 +58,7 @@ export async function getBackendBodyTrajectory(body: BodyId): Promise<SmallBodyT
       z: point.z,
     },
   }));
+  return points.sort((left, right) => left.time.getTime() - right.time.getTime());
 }
 
 export async function prewarmSmallBodyTrajectories(): Promise<Partial<Record<BodyId, SmallBodyTrajectory>>> {

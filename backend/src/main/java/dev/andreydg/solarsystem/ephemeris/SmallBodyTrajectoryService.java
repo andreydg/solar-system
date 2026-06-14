@@ -93,27 +93,50 @@ public class SmallBodyTrajectoryService {
     }
 
     private static Optional<Vector3Au> interpolateWithinRange(List<TrajectorySample> trajectory, Instant timeUtc) {
-        TrajectorySample last = trajectory.getLast();
-
-        for (int index = 0; index < trajectory.size() - 1; index++) {
-            TrajectorySample start = trajectory.get(index);
-            TrajectorySample end = trajectory.get(index + 1);
-
-            if (timeUtc.isBefore(start.timeUtc()) || timeUtc.isAfter(end.timeUtc())) {
-                continue;
-            }
-
-            long startMillis = start.timeUtc().toEpochMilli();
-            long endMillis = end.timeUtc().toEpochMilli();
-            if (endMillis == startMillis) {
-                return Optional.of(start.position());
-            }
-
-            double ratio = (timeUtc.toEpochMilli() - startMillis) / (double) (endMillis - startMillis);
-            return Optional.of(lerp(start.position(), end.position(), ratio));
+        if (trajectory.isEmpty()) {
+            return Optional.empty();
+        }
+        if (trajectory.size() == 1) {
+            return Optional.of(trajectory.getFirst().position());
         }
 
-        return Optional.of(last.position());
+        Instant firstTime = trajectory.getFirst().timeUtc();
+        Instant lastTime = trajectory.getLast().timeUtc();
+
+        if (timeUtc.isBefore(firstTime)) {
+            return Optional.of(trajectory.getFirst().position());
+        }
+        if (timeUtc.isAfter(lastTime)) {
+            return Optional.of(trajectory.getLast().position());
+        }
+
+        // Binary search to find index such that trajectory[index].timeUtc <= timeUtc && timeUtc <= trajectory[index+1].timeUtc
+        int low = 0;
+        int high = trajectory.size() - 2;
+        int index = 0;
+
+        while (low <= high) {
+            int mid = (low + high) >>> 1;
+            Instant midTime = trajectory.get(mid).timeUtc();
+            if (!midTime.isAfter(timeUtc)) {
+                index = mid;
+                low = mid + 1;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        TrajectorySample start = trajectory.get(index);
+        TrajectorySample end = trajectory.get(index + 1);
+
+        long startMillis = start.timeUtc().toEpochMilli();
+        long endMillis = end.timeUtc().toEpochMilli();
+        if (endMillis == startMillis) {
+            return Optional.of(start.position());
+        }
+
+        double ratio = (timeUtc.toEpochMilli() - startMillis) / (double) (endMillis - startMillis);
+        return Optional.of(lerp(start.position(), end.position(), ratio));
     }
 
     public boolean covers(BodyId body, Instant timeUtc) {
