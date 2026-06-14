@@ -49,6 +49,7 @@ public class EventCatalogService {
     }
 
     public List<CatalogEvent> query(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
+        validateRequest(type, bodyA, bodyB);
         List<CatalogEvent> events = repository.find(type, bodyA, bodyB, from, to).stream()
             .filter(this::isStoredEventValid)
             .toList();
@@ -66,6 +67,7 @@ public class EventCatalogService {
     }
 
     public List<CatalogEvent> generate(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
+        validateRequest(type, bodyA, bodyB);
         BodyPair pair = BodyPair.of(bodyA, bodyB);
         List<CatalogEvent> events = switch (type) {
             case CLOSEST_APPROACH -> generateExtremalApproaches(
@@ -99,9 +101,19 @@ public class EventCatalogService {
             .filter(this::isStoredEventValid)
             .toList();
 
-        repository.upsertAll(validEvents);
+        List<CatalogEvent> existingEvents = repository.find(type, bodyA, bodyB, from, to);
+        java.util.Map<String, CatalogEvent> existingById = existingEvents.stream()
+            .collect(java.util.stream.Collectors.toMap(CatalogEvent::id, e -> e, (first, second) -> first));
 
-        List<String> validatableIds = validEvents.stream()
+        List<CatalogEvent> eventsToStore = validEvents.stream()
+            .filter(event -> !existingById.containsKey(event.id()))
+            .toList();
+
+        if (!eventsToStore.isEmpty()) {
+            repository.upsertAll(eventsToStore);
+        }
+
+        List<String> validatableIds = eventsToStore.stream()
             .filter(event -> event.type().supportsJplValidation())
             .map(CatalogEvent::id)
             .toList();
@@ -110,7 +122,9 @@ public class EventCatalogService {
             eventPublisher.publishEvent(new CatalogEventsGeneratedEvent(validatableIds));
         }
 
-        return validEvents;
+        return validEvents.stream()
+            .map(event -> existingById.getOrDefault(event.id(), event))
+            .toList();
     }
 
     public List<CatalogEvent> listValidatedEvents() {
@@ -703,7 +717,12 @@ public class EventCatalogService {
         double heliocentricDistanceAu = planet.magnitude();
         double geocentricDistanceAu = planet.distanceTo(earth);
         double baseMagnitude = BASE_MAGNITUDE.getOrDefault(target, 0.0);
-        double magnitude = baseMagnitude + 5.0 * Math.log10(heliocentricDistanceAu * geocentricDistanceAu);
+
+        Vector3Au planetToSun = planet.negate();
+        Vector3Au planetToEarth = earth.minus(planet);
+        double alphaDeg = planetToSun.angleBetweenDeg(planetToEarth);
+
+        double magnitude = baseMagnitude + 5.0 * Math.log10(heliocentricDistanceAu * geocentricDistanceAu) + phaseCorrection(target, alphaDeg);
         return new MagnitudeSample(time, magnitude);
     }
 
@@ -795,13 +814,11 @@ public class EventCatalogService {
     }
 
     private AngularSample sampleRelativeLongitude(BodyId bodyA, BodyId bodyB, Instant time, double targetAngleDeg) {
-        Vector3Au earth = ephemerisProvider.heliocentricPosition(BodyId.EARTH, time);
-        Vector3Au target = bodyA == BodyId.EARTH
-            ? ephemerisProvider.heliocentricPosition(bodyB, time)
-            : ephemerisProvider.heliocentricPosition(bodyA, time);
+        Vector3Au observer = ephemerisProvider.heliocentricPosition(bodyA, time);
+        Vector3Au target = ephemerisProvider.heliocentricPosition(bodyB, time);
 
-        double targetLongitude = longitudeDeg(target.x() - earth.x(), target.y() - earth.y());
-        double sunLongitude = longitudeDeg(-earth.x(), -earth.y());
+        double targetLongitude = longitudeDeg(target.x() - observer.x(), target.y() - observer.y());
+        double sunLongitude = longitudeDeg(-observer.x(), -observer.y());
         double angle = normalizeDegrees(targetLongitude - sunLongitude);
         double offset = signedAngleDifference(angle, targetAngleDeg);
 
@@ -959,5 +976,59 @@ public class EventCatalogService {
     }
 
     private record RateSample(Instant time, double rateDegPerDay) {
+    }
+
+    private void validateRequest(EventType type, BodyId bodyA, BodyId bodyB) {
+        if (bodyA == bodyB) {
+            throw new IllegalArgumentException("Body A and Body B must be different");
+        }
+
+        switch (type) {
+            case OPPOSITION, CONJUNCTION, STATIONARY, RETROGRADE_START, RETROGRADE_END, BRIGHTEST_APPROACH -> {
+                if (bodyA != BodyId.EARTH && bodyB != BodyId.EARTH) {
+                    throw new IllegalArgumentException("Earth-observer event requires Earth and one target body");
+                }
+                BodyId target = bodyA == BodyId.EARTH ? bodyB : bodyA;
+                if (target == BodyId.EARTH) {
+                    throw new IllegalArgumentException("Target body cannot be Earth");
+                }
+                if (type == EventType.OPPOSITION && (target == BodyId.MERCURY || target == BodyId.VENUS)) {
+                    throw new IllegalArgumentException("Opposition is not possible for inner planets (Mercury/Venus)");
+                }
+            }
+            case GREATEST_ELONGATION, TRANSIT -> {
+                if (bodyA != BodyId.EARTH && bodyB != BodyId.EARTH) {
+                    throw new IllegalArgumentException("Inner-planet event requires Earth and one target body");
+                }
+                BodyId target = bodyA == BodyId.EARTH ? bodyB : bodyA;
+                if (target != BodyId.MERCURY && target != BodyId.VENUS) {
+                    throw new IllegalArgumentException("Inner-planet event requires Mercury or Venus as target");
+                }
+            }
+            case PERIHELION -> {
+                if (bodyA != BodyId.EARTH && bodyB != BodyId.EARTH) {
+                    throw new IllegalArgumentException("Perihelion event requires Earth and one target body");
+                }
+                BodyId target = bodyA == BodyId.EARTH ? bodyB : bodyA;
+                if (!target.isSmallBody()) {
+                    throw new IllegalArgumentException("Perihelion event requires a small body (Ceres, Vesta, Encke, Halley)");
+                }
+            }
+            default -> {
+                // closestApproach, farthestApproach can involve any two bodies, no restrictions
+            }
+        }
+    }
+
+    private static double phaseCorrection(BodyId body, double alphaDeg) {
+        return switch (body) {
+            case MERCURY -> 0.0380 * alphaDeg - 0.000273 * alphaDeg * alphaDeg + 0.000002 * alphaDeg * alphaDeg * alphaDeg;
+            case VENUS -> -0.0009 * alphaDeg + 0.000239 * alphaDeg * alphaDeg - 0.00000065 * alphaDeg * alphaDeg * alphaDeg;
+            case MARS -> 0.016 * alphaDeg;
+            case JUPITER -> 0.005 * alphaDeg;
+            case SATURN -> 0.044 * alphaDeg;
+            case URANUS, NEPTUNE -> 0.0028 * alphaDeg;
+            default -> 0.04 * alphaDeg; // general phase correction for small bodies
+        };
     }
 }

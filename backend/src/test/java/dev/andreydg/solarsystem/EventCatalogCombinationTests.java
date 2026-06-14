@@ -48,6 +48,8 @@ class EventCatalogCombinationTests {
             Arguments.of(EventType.GREATEST_ELONGATION, BodyId.MARS, BodyId.JUPITER),
             Arguments.of(EventType.TRANSIT, BodyId.EARTH, BodyId.JUPITER),
             Arguments.of(EventType.OPPOSITION, BodyId.MARS, BodyId.JUPITER),
+            Arguments.of(EventType.OPPOSITION, BodyId.EARTH, BodyId.MERCURY),
+            Arguments.of(EventType.OPPOSITION, BodyId.VENUS, BodyId.EARTH),
             Arguments.of(EventType.CONJUNCTION, BodyId.MERCURY, BodyId.VENUS),
             Arguments.of(EventType.STATIONARY, BodyId.SATURN, BodyId.URANUS),
             Arguments.of(EventType.RETROGRADE_START, BodyId.NEPTUNE, BodyId.JUPITER),
