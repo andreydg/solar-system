@@ -34,6 +34,7 @@ type ControlPanelProps = {
   onEventBodyBChange: (body: BodyId) => void;
   onEventTypeChange: (type: ApiCatalogEventType) => void;
   onNextEvent: () => void;
+  onPrevEvent: () => void;
   onPlayToggle: () => void;
   onSpeedChange: (daysPerSecond: number) => void;
   onToggleBody: (body: BodyId) => void;
@@ -78,6 +79,7 @@ export default function ControlPanel({
   onEventBodyBChange,
   onEventTypeChange,
   onNextEvent,
+  onPrevEvent,
   onPlayToggle,
   onSpeedChange,
   onToggleBody,
@@ -212,9 +214,20 @@ export default function ControlPanel({
           <p className="status-text">Choose a valid body pair for this event type.</p>
         ) : null}
 
-        <button type="button" className="next-event-button" disabled={searchDisabled} onClick={onNextEvent}>
-          {isSearching ? "Searching..." : "Next event"}
-        </button>
+        {eventResult ? (
+          <div className="event-nav-buttons">
+            <button type="button" className="next-event-button" disabled={searchDisabled} onClick={onPrevEvent}>
+              ‹ Prev
+            </button>
+            <button type="button" className="next-event-button" disabled={searchDisabled} onClick={onNextEvent}>
+              Next ›
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="next-event-button" disabled={searchDisabled} onClick={onNextEvent}>
+            {isSearching ? "Searching..." : "Find"}
+          </button>
+        )}
         {eventStatus ? <p className="status-text">{eventStatus}</p> : null}
 
         {eventResult ? (

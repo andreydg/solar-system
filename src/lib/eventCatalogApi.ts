@@ -105,6 +105,35 @@ export async function findNextEvent(
   return null;
 }
 
+export async function findPreviousEvent(
+  type: CatalogEventType,
+  bodyA: BodyId,
+  bodyB: BodyId,
+  before: Date,
+): Promise<CatalogEventResult | null> {
+  const absoluteStart = addYears(before, -SEARCH_HORIZON_YEARS);
+  let windowEnd = before;
+
+  while (windowEnd > absoluteStart) {
+    const windowStart = maxDate(addYears(windowEnd, -GENERATE_WINDOW_YEARS), absoluteStart);
+    const queryResult = await queryEvents(type, bodyA, bodyB, windowStart, windowEnd);
+
+    if (queryResult.length > 0) {
+      // Results are ordered ascending by time; the last one is the latest before `before`.
+      return toCatalogEventResult(queryResult[queryResult.length - 1]);
+    }
+
+    const generated = await generateEvents(type, bodyA, bodyB, windowStart, windowEnd);
+    if (generated.length > 0) {
+      return toCatalogEventResult(generated[generated.length - 1]);
+    }
+
+    windowEnd = windowStart;
+  }
+
+  return null;
+}
+
 async function queryEvents(
   type: CatalogEventType,
   bodyA: BodyId,
@@ -181,6 +210,10 @@ function toCatalogEventResult(event: ApiEvent): CatalogEventResult {
 
 function minDate(left: Date, right: Date) {
   return left < right ? left : right;
+}
+
+function maxDate(left: Date, right: Date) {
+  return left > right ? left : right;
 }
 
 async function assertOk(response: Response) {

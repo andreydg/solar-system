@@ -12,7 +12,7 @@ import {
 import { findClosestApproach, getBodyPositions } from "./lib/ephemeris";
 import { getBackendBodyPositions } from "./lib/ephemerisApi";
 import { interpolateTrajectory, loadSmallBodyTrajectoriesWithRetry, type SmallBodyTrajectory } from "./lib/smallBodyTrajectory";
-import { findNextEvent, isJplSource, SEARCH_HORIZON_YEARS, type CatalogEventResult } from "./lib/eventCatalogApi";
+import { findNextEvent, findPreviousEvent, isJplSource, SEARCH_HORIZON_YEARS, type CatalogEventResult } from "./lib/eventCatalogApi";
 import { addDays, addYears } from "./lib/timeUtils";
 
 const INITIAL_DATE = new Date();
@@ -241,21 +241,25 @@ export default function App() {
     setEventBodyB(normalized.bodyB);
   };
 
-  const handleSearchEvent = async (after?: Date) => {
+  const handleSearchEvent = async (anchor: Date, direction: "next" | "prev" = "next") => {
     if (!eventPairIsValid) {
       setEventStatus("Choose a valid body pair for this event type.");
       return;
     }
 
-    const searchAfter = after ?? currentTime;
     setIsSearching(true);
-    setEventStatus("Searching for next event...");
+    setEventStatus(`Searching for ${direction === "prev" ? "previous" : "next"} event...`);
 
     try {
-      const result = await findNextEvent(eventType, eventBodyA, eventBodyB, searchAfter);
+      const result =
+        direction === "prev"
+          ? await findPreviousEvent(eventType, eventBodyA, eventBodyB, anchor)
+          : await findNextEvent(eventType, eventBodyA, eventBodyB, anchor);
 
       if (!result) {
-        setEventStatus(`No matching events found in the next ${SEARCH_HORIZON_YEARS} years.`);
+        setEventStatus(
+          `No matching events found in the ${direction === "prev" ? "previous" : "next"} ${SEARCH_HORIZON_YEARS} years.`,
+        );
         return;
       }
 
@@ -275,8 +279,9 @@ export default function App() {
         return;
       }
 
-      const end = addYears(searchAfter, 5);
-      const result = findClosestApproach(eventBodyA, eventBodyB, searchAfter, end);
+      const start = direction === "prev" ? addYears(anchor, -5) : anchor;
+      const end = direction === "prev" ? anchor : addYears(anchor, 5);
+      const result = findClosestApproach(eventBodyA, eventBodyB, start, end);
 
       setCurrentTime(result.time);
       ensureBodiesVisible(result.bodyA, result.bodyB);
@@ -299,7 +304,12 @@ export default function App() {
 
   const handleNextEvent = () => {
     const searchAfter = eventResult ? addDays(eventResult.time, 1) : currentTime;
-    void handleSearchEvent(searchAfter);
+    void handleSearchEvent(searchAfter, "next");
+  };
+
+  const handlePreviousEvent = () => {
+    const searchBefore = eventResult ? addDays(eventResult.time, -1) : currentTime;
+    void handleSearchEvent(searchBefore, "prev");
   };
 
   return (
@@ -333,6 +343,7 @@ export default function App() {
         onEventTypeChange={handleEventTypeChange}
         onPlayToggle={() => setIsPlaying((playing) => !playing)}
         onNextEvent={handleNextEvent}
+        onPrevEvent={handlePreviousEvent}
         onSpeedChange={setSpeedDaysPerSecond}
         onToggleBody={handleToggleBody}
       />
