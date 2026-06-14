@@ -58,13 +58,13 @@ export type CatalogOptions = {
 
 export async function getCatalogOptions(): Promise<CatalogOptions> {
   const response = await fetch("/api/catalog/options");
-  assertOk(response);
+  await assertOk(response);
   return (await response.json()) as CatalogOptions;
 }
 
 export async function getValidatedEvents(): Promise<CatalogEventResult[]> {
   const response = await fetch("/api/events/validated");
-  assertOk(response);
+  await assertOk(response);
   const events = (await response.json()) as ApiEvent[];
   return events.map(toCatalogEventResult);
 }
@@ -120,7 +120,7 @@ async function queryEvents(
   });
 
   const response = await fetch(`/api/events?${params.toString()}`);
-  assertOk(response);
+  await assertOk(response);
   return (await response.json()) as ApiEvent[];
 }
 
@@ -145,7 +145,7 @@ async function generateEvents(
     method: "POST",
   });
 
-  assertOk(response);
+  await assertOk(response);
   return (await response.json()) as ApiEvent[];
 }
 
@@ -188,8 +188,17 @@ function minDate(left: Date, right: Date) {
   return left < right ? left : right;
 }
 
-function assertOk(response: Response) {
+async function assertOk(response: Response) {
   if (!response.ok) {
-    throw new Error(`Event catalog request failed with ${response.status}`);
+    let msg = `Event catalog request failed with ${response.status}`;
+    try {
+      const body = await response.json() as Record<string, unknown>;
+      if (typeof body.message === "string") {
+        msg = body.message;
+      }
+    } catch {
+      // ignore
+    }
+    throw new Error(msg);
   }
 }

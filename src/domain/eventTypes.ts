@@ -13,7 +13,7 @@ export type CatalogEventType =
   | "stationary"
   | "transit";
 
-export type EventPairing = "any" | "earth" | "earthInner" | "smallBody";
+export type EventPairing = "any" | "earth" | "earthInner" | "earthOuter" | "smallBody";
 
 export type EventTypeDefinition = {
   description: string;
@@ -42,7 +42,7 @@ export const EVENT_TYPES: EventTypeDefinition[] = [
   {
     id: "opposition",
     label: "Opposition",
-    pairing: "earth",
+    pairing: "earthOuter",
     description:
       "When a body appears opposite the Sun in Earth's sky (~180° apart). Often the best time to observe outer planets, asteroids, and comets.",
   },
@@ -126,6 +126,10 @@ export function getEventTargetOptions(type: CatalogEventType): BodyId[] {
     return definition.innerTargets ?? [];
   }
 
+  if (definition.pairing === "earthOuter") {
+    return BODIES.map((body) => body.id).filter((body) => body !== "earth" && body !== "mercury" && body !== "venus");
+  }
+
   if (definition.pairing === "smallBody") {
     return definition.smallBodyTargets ?? SMALL_BODY_IDS;
   }
@@ -156,6 +160,10 @@ export function isValidEventPair(type: CatalogEventType, bodyA: BodyId, bodyB: B
     return definition.innerTargets?.includes(bodyB) ?? false;
   }
 
+  if (definition.pairing === "earthOuter") {
+    return bodyB !== "earth" && bodyB !== "mercury" && bodyB !== "venus";
+  }
+
   if (definition.pairing === "smallBody") {
     return definition.smallBodyTargets?.includes(bodyB) ?? false;
   }
@@ -177,6 +185,8 @@ export function formatEventPairingNote(type: CatalogEventType) {
       return "Earth observer + one target body";
     case "earthInner":
       return "Earth observer + Mercury or Venus";
+    case "earthOuter":
+      return "Earth observer + Outer planet or Small Body";
     case "smallBody":
       return "Earth observer + Ceres, Vesta, Encke, or Halley";
   }
