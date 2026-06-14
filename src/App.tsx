@@ -17,6 +17,9 @@ import { addDays, addYears } from "./lib/timeUtils";
 
 const INITIAL_DATE = new Date();
 const DEFAULT_VISIBLE_BODIES = BODIES.filter((body) => !isSmallBody(body.id)).map((body) => body.id);
+// Debounce live small-body fetches so fast-forwarding (many simulated days per second)
+// collapses into a single backend request once playback settles.
+const LIVE_FETCH_DEBOUNCE_MS = 250;
 
 export default function App() {
   const [currentTime, setCurrentTime] = useState(INITIAL_DATE);
@@ -36,6 +39,12 @@ export default function App() {
   >({});
   const [liveSmallBodyPositions, setLiveSmallBodyPositions] = useState<BodyPosition[]>([]);
   const lastFrameMs = useRef<number | null>(null);
+  // Mirrors currentTime so the debounced fetch can read the latest value without
+  // re-subscribing every animation frame (it keys off the simulated day instead).
+  const currentTimeRef = useRef(currentTime);
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
 
   const eventPairIsValid = useMemo(
     () => isValidEventPair(eventType, eventBodyA, eventBodyB),
@@ -110,27 +119,30 @@ export default function App() {
   );
 
   useEffect(() => {
+    // Nothing to fetch: stale live positions are harmless because the positions memo only
+    // surfaces live data for visible small bodies that still lack a trajectory.
     if (smallBodiesNeedingLiveFetch.length === 0) {
-      setLiveSmallBodyPositions([]);
       return;
     }
 
     let cancelled = false;
-
-    void getBackendBodyPositions(smallBodiesNeedingLiveFetch, currentTime)
-      .then((positions) => {
-        if (!cancelled) {
-          setLiveSmallBodyPositions(positions);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setLiveSmallBodyPositions([]);
-        }
-      });
+    const debounceHandle = window.setTimeout(() => {
+      void getBackendBodyPositions(smallBodiesNeedingLiveFetch, currentTimeRef.current)
+        .then((positions) => {
+          if (!cancelled) {
+            setLiveSmallBodyPositions(positions);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setLiveSmallBodyPositions([]);
+          }
+        });
+    }, LIVE_FETCH_DEBOUNCE_MS);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(debounceHandle);
     };
   }, [simulatedDayKey, smallBodiesNeedingLiveFetch]);
 
