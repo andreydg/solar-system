@@ -55,15 +55,17 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
         Instant from,
         Instant to
     ) {
+        BodyIdOrdered ordered = getStoredOrder(type, bodyA, bodyB);
         try {
             return firestore.collection(collection)
                 .whereEqualTo("type", type.apiValue())
+                .whereEqualTo("bodyA", ordered.bodyA().apiValue())
+                .whereEqualTo("bodyB", ordered.bodyB().apiValue())
                 .get()
                 .get()
                 .getDocuments()
                 .stream()
                 .map(snapshot -> fromDocument(snapshot.getData()))
-                .filter(event -> matchesPair(event, bodyA, bodyB))
                 .filter(event -> !event.displayTimeUtc().isBefore(from) && !event.displayTimeUtc().isAfter(to))
                 .sorted(Comparator.comparing(CatalogEvent::displayTimeUtc))
                 .toList();
@@ -177,4 +179,17 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
     private static Double parseOptionalDouble(Object value) {
         return value == null ? null : ((Number) value).doubleValue();
     }
+
+    private static BodyIdOrdered getStoredOrder(EventType type, BodyId bodyA, BodyId bodyB) {
+        if (type == EventType.CLOSEST_APPROACH || type == EventType.FARTHEST_APPROACH) {
+            return bodyA.ordinal() <= bodyB.ordinal()
+                ? new BodyIdOrdered(bodyA, bodyB)
+                : new BodyIdOrdered(bodyB, bodyA);
+        } else {
+            BodyId target = bodyA == BodyId.EARTH ? bodyB : bodyA;
+            return new BodyIdOrdered(BodyId.EARTH, target);
+        }
+    }
+
+    private record BodyIdOrdered(BodyId bodyA, BodyId bodyB) {}
 }

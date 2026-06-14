@@ -13,7 +13,8 @@ public final class EventPairing {
             case CLOSEST_APPROACH, FARTHEST_APPROACH -> true;
             case GREATEST_ELONGATION, TRANSIT -> isEarthInnerPair(bodyA, bodyB);
             case PERIHELION -> isEarthSmallBodyPair(bodyA, bodyB);
-            case OPPOSITION, CONJUNCTION, STATIONARY, RETROGRADE_START, RETROGRADE_END, BRIGHTEST_APPROACH ->
+            case OPPOSITION -> isEarthObserverPair(bodyA, bodyB) && !isEarthInnerPair(bodyA, bodyB);
+            case CONJUNCTION, STATIONARY, RETROGRADE_START, RETROGRADE_END, BRIGHTEST_APPROACH ->
                 isEarthObserverPair(bodyA, bodyB);
         };
     }
