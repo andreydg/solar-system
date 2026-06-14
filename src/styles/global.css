@@ -279,6 +279,15 @@ input[type="range"] {
   margin-top: 0.55rem;
 }
 
+.event-nav-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.event-nav-buttons .next-event-button {
+  flex: 1;
+}
+
 .control-panel input[type="date"],
 .control-panel input[type="time"],
 .control-panel input[type="datetime-local"] {
