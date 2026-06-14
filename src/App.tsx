@@ -13,6 +13,7 @@ import { findClosestApproach, getBodyPositions } from "./lib/ephemeris";
 import { getBackendBodyPositions } from "./lib/ephemerisApi";
 import { interpolateTrajectory, loadSmallBodyTrajectoriesWithRetry, type SmallBodyTrajectory } from "./lib/smallBodyTrajectory";
 import { findNextEvent, isJplSource, SEARCH_HORIZON_YEARS, type CatalogEventResult } from "./lib/eventCatalogApi";
+import { addDays, addYears } from "./lib/timeUtils";
 
 const INITIAL_DATE = new Date();
 const DEFAULT_VISIBLE_BODIES = BODIES.filter((body) => !isSmallBody(body.id)).map((body) => body.id);
@@ -325,14 +326,4 @@ export default function App() {
       />
     </main>
   );
-}
-
-function addDays(time: Date, days: number) {
-  return new Date(time.getTime() + days * 24 * 60 * 60 * 1000);
-}
-
-function addYears(time: Date, years: number) {
-  const next = new Date(time);
-  next.setUTCFullYear(next.getUTCFullYear() + years);
-  return next;
 }

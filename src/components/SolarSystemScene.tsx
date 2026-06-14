@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { BODIES, BODY_BY_ID, type BodyId, type BodyPosition, type Vec3, distanceAu, isComet, isSmallBody } from "../domain/solarSystem";
 import { sampleTrajectory } from "../lib/ephemeris";
 import { chunkScenePoints, buildOrbitTrailSegments, type SmallBodyTrajectory } from "../lib/smallBodyTrajectory";
+import { addDays } from "../lib/timeUtils";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 const AU_TO_SCENE_UNITS = 3.2;
@@ -387,8 +388,4 @@ function normalizeVector(vector: [number, number, number]): [number, number, num
 
 function scaleVector(vector: [number, number, number], scale: number): [number, number, number] {
   return [vector[0] * scale, vector[1] * scale, vector[2] * scale];
-}
-
-function addDays(time: Date, days: number) {
-  return new Date(time.getTime() + days * 24 * 60 * 60 * 1000);
 }

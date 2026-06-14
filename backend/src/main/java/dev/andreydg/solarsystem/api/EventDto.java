@@ -1,6 +1,7 @@
 package dev.andreydg.solarsystem.api;
 
 import dev.andreydg.solarsystem.catalog.CatalogEvent;
+import dev.andreydg.solarsystem.catalog.EventCatalogService;
 
 public record EventDto(
     String id,
@@ -31,8 +32,6 @@ public record EventDto(
     Double jplDeltaKm,
     String jplRawSummary
 ) {
-    private static final double AU_KM = 149_597_870.7;
-
     public static EventDto from(CatalogEvent event) {
         return new EventDto(
             event.id(),
@@ -41,7 +40,7 @@ public record EventDto(
             event.bodyB().apiValue(),
             event.displayTimeUtc().toString(),
             event.displayDistanceAu(),
-            event.displayDistanceAu() == null ? null : event.displayDistanceAu() * AU_KM,
+            event.displayDistanceAu() == null ? null : event.displayDistanceAu() * EventCatalogService.AU_KM,
             event.displayAngleDeg(),
             event.displayMagnitude(),
             event.displaySource(),

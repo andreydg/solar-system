@@ -2,20 +2,18 @@ import { useState } from "react";
 import ValidatedEventsOverlay from "./ValidatedEventsOverlay";
 import EventTypesOverlay from "./EventTypesOverlay";
 import {
-  AU_KM,
   BODIES,
   BODY_BY_ID,
   type BodyId,
 } from "../domain/solarSystem";
 import {
   EVENT_TYPES,
-  formatEventTypeLabel,
   getEventTargetOptions,
-  locksEarthAsBodyA,
   type CatalogEventType,
 } from "../domain/eventTypes";
 import type { CatalogEventType as ApiCatalogEventType } from "../lib/eventCatalogApi";
 import { isJplSource } from "../lib/eventCatalogApi";
+import { formatDate, formatDistance, formatEventTitle, formatSource } from "../lib/formatters";
 import type { CSSProperties } from "react";
 
 type ControlPanelProps = {
@@ -276,53 +274,6 @@ export default function ControlPanel({
     </aside>
   );
 }
-
-function formatEventTitle(
-  eventResult: EventResultView,
-  eventType: ApiCatalogEventType,
-) {
-  const type = "type" in eventResult && eventResult.type ? eventResult.type : eventType;
-
-  if (type === "perihelion") {
-    const target = eventResult.bodyA === "earth" ? eventResult.bodyB : eventResult.bodyA;
-    return `${formatEventTypeLabel(type)}: ${BODY_BY_ID[target].name}`;
-  }
-
-  if (locksEarthAsBodyA(type)) {
-    const target = eventResult.bodyA === "earth" ? eventResult.bodyB : eventResult.bodyA;
-    return `${formatEventTypeLabel(type)}: ${BODY_BY_ID[target].name} (from Earth)`;
-  }
-
-  return `${formatEventTypeLabel(type)}: ${BODY_BY_ID[eventResult.bodyA].name} to ${BODY_BY_ID[eventResult.bodyB].name}`;
-}
-
-function formatDate(time: Date) {
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  }).format(time);
-}
-
-function formatDistance(distanceKm: number) {
-  if (distanceKm > AU_KM) {
-    return `${(distanceKm / 1_000_000).toFixed(1)} million`;
-  }
-
-  return Math.round(distanceKm).toLocaleString();
-}
-
-function formatSource(source: string) {
-  switch (source) {
-    case "JPL_HORIZONS":
-      return "JPL";
-    case "VSOP87A_APPROX":
-      return "VSOP87A";
-    default:
-      return source.replace(/_/g, " ");
-  }
-}
-
 function toDateTimeLocalValue(time: Date) {
   return time.toISOString().slice(0, 16);
 }

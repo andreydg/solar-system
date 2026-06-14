@@ -6,6 +6,7 @@ import {
   type ClosestApproachResult,
   distanceAu,
 } from "../domain/solarSystem";
+import { addDays, DAY_MS } from "../lib/timeUtils";
 
 type AstronomyBody = unknown;
 
@@ -105,7 +106,7 @@ function findClosestInWindow(
   end: Date,
   stepDays: number,
 ) {
-  const stepMs = stepDays * 24 * 60 * 60 * 1000;
+  const stepMs = stepDays * DAY_MS;
   const startMs = start.getTime();
   const endMs = end.getTime();
   let bestTime = start;
@@ -127,8 +128,4 @@ function findClosestInWindow(
     time: bestTime,
     distanceAu: bestDistance,
   };
-}
-
-function addDays(time: Date, days: number) {
-  return new Date(time.getTime() + days * 24 * 60 * 60 * 1000);
 }

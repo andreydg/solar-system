@@ -276,7 +276,7 @@ public class EventCatalogService {
         for (Instant time = from.plus(DAILY_STEP); !time.isAfter(to); time = time.plus(DAILY_STEP)) {
             AngularSample current = sampleRelativeLongitude(bodyA, bodyB, time, targetAngleDeg);
 
-            if (crossesZero(previous.offsetDeg(), current.offsetDeg())) {
+            if (crossesAngularTarget(previous.offsetDeg(), current.offsetDeg())) {
                 AngularSample refined = refineAngularCrossing(bodyA, bodyB, previous.time(), current.time(), targetAngleDeg);
                 events.add(toEvent(
                     type,
@@ -805,7 +805,7 @@ public class EventCatalogService {
             Instant mid = low.plus(Duration.between(low, high).dividedBy(2));
             AngularSample midSample = sampleRelativeLongitude(bodyA, bodyB, mid, targetAngle);
 
-            if (crossesZero(lowSample.offsetDeg(), midSample.offsetDeg())) {
+            if (crossesAngularTarget(lowSample.offsetDeg(), midSample.offsetDeg())) {
                 high = mid;
             } else {
                 low = mid;
@@ -844,6 +844,15 @@ public class EventCatalogService {
 
     private static boolean crossesZero(double a, double b) {
         return a == 0 || b == 0 || Math.signum(a) != Math.signum(b);
+    }
+
+    private static boolean crossesAngularTarget(double previousOffset, double currentOffset) {
+        // signedAngleDifference is continuous except for a ~360° jump at the antipode of the
+        // target angle. That discontinuity flips the sign too, so plain crossesZero would also
+        // fire at the antipode (e.g. an opposition search triggering at conjunction). A genuine
+        // crossing moves by less than the synodic step (well under 180°), so require continuity.
+        return crossesZero(previousOffset, currentOffset)
+            && Math.abs(previousOffset - currentOffset) < 180.0;
     }
 
     private static double longitudeDeg(double x, double y) {

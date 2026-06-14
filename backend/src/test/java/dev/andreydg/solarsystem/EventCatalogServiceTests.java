@@ -94,4 +94,37 @@ class EventCatalogServiceTests {
         assertThatThrownBy(() -> service.generate(EventType.PERIHELION, BodyId.EARTH, BodyId.MARS, from, to))
             .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void generatesOppositionsWithAngleNear180() {
+        Instant from = Instant.parse("2026-01-01T00:00:00Z");
+        Instant to = Instant.parse("2028-12-31T00:00:00Z");
+
+        var generated = service.generate(EventType.OPPOSITION, BodyId.EARTH, BodyId.MARS, from, to);
+
+        assertThat(generated).isNotEmpty();
+        for (var event : generated) {
+            assertThat(event.displayAngleDeg()).isNotNull();
+            // Angle is normalized to [0, 360), so opposition should be near 180
+            double angle = event.displayAngleDeg();
+            assertThat(Math.abs(angle - 180.0)).as("Opposition angle should be near 180°, was %f", angle).isLessThan(10.0);
+        }
+    }
+
+    @Test
+    void generatesConjunctionsWithAngleNear0() {
+        Instant from = Instant.parse("2026-01-01T00:00:00Z");
+        Instant to = Instant.parse("2028-12-31T00:00:00Z");
+
+        var generated = service.generate(EventType.CONJUNCTION, BodyId.EARTH, BodyId.MARS, from, to);
+
+        assertThat(generated).isNotEmpty();
+        for (var event : generated) {
+            assertThat(event.displayAngleDeg()).isNotNull();
+            // Angle is normalized to [0, 360), so conjunction near 0° can appear as ~0 or ~360
+            double angle = event.displayAngleDeg();
+            double distanceFrom0 = Math.min(angle, 360.0 - angle);
+            assertThat(distanceFrom0).as("Conjunction angle should be near 0°, was %f", angle).isLessThan(5.0);
+        }
+    }
 }
