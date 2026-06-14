@@ -177,6 +177,7 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
                   <span>{formatDate(event.time)} UTC</span>
                   {event.distanceKm && event.distanceAu ? (
                     <small>
+                      {event.type === "perihelion" ? "Sun distance" : "Separation"}:{" "}
                       {formatDistance(event.distanceKm)} km ({event.distanceAu.toFixed(4)} AU)
                     </small>
                   ) : null}
@@ -197,6 +198,11 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
 }
 
 function formatEventTitle(event: CatalogEventResult) {
+  if (event.type === "perihelion") {
+    const target = event.bodyA === "earth" ? event.bodyB : event.bodyA;
+    return `${formatEventTypeLabel(event.type)}: ${BODY_BY_ID[target].name}`;
+  }
+
   if (locksEarthAsBodyA(event.type)) {
     const target = event.bodyA === "earth" ? event.bodyB : event.bodyA;
     return `${formatEventTypeLabel(event.type)}: ${BODY_BY_ID[target].name} (from Earth)`;

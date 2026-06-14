@@ -70,6 +70,11 @@ export async function getValidatedEvents(): Promise<CatalogEventResult[]> {
 }
 
 export const SEARCH_HORIZON_YEARS = 1000;
+const GENERATE_WINDOW_YEARS = 25;
+
+export function isJplSource(source: string | null | undefined) {
+  return source === "JPL_HORIZONS";
+}
 
 export async function findNextEvent(
   type: CatalogEventType,
@@ -77,16 +82,26 @@ export async function findNextEvent(
   bodyB: BodyId,
   after: Date,
 ): Promise<CatalogEventResult | null> {
-  const start = after;
-  const end = addYears(after, SEARCH_HORIZON_YEARS);
-  const queryResult = await queryEvents(type, bodyA, bodyB, start, end);
+  const absoluteEnd = addYears(after, SEARCH_HORIZON_YEARS);
+  let windowStart = after;
 
-  if (queryResult.length > 0) {
-    return toCatalogEventResult(queryResult[0]);
+  while (windowStart < absoluteEnd) {
+    const windowEnd = minDate(addYears(windowStart, GENERATE_WINDOW_YEARS), absoluteEnd);
+    const queryResult = await queryEvents(type, bodyA, bodyB, windowStart, windowEnd);
+
+    if (queryResult.length > 0) {
+      return toCatalogEventResult(queryResult[0]);
+    }
+
+    const generated = await generateEvents(type, bodyA, bodyB, windowStart, windowEnd);
+    if (generated.length > 0) {
+      return toCatalogEventResult(generated[0]);
+    }
+
+    windowStart = windowEnd;
   }
 
-  const generated = await generateEvents(type, bodyA, bodyB, start, end);
-  return generated.length > 0 ? toCatalogEventResult(generated[0]) : null;
+  return null;
 }
 
 async function queryEvents(
@@ -167,6 +182,10 @@ function addYears(time: Date, years: number) {
   const next = new Date(time);
   next.setUTCFullYear(next.getUTCFullYear() + years);
   return next;
+}
+
+function minDate(left: Date, right: Date) {
+  return left < right ? left : right;
 }
 
 function assertOk(response: Response) {

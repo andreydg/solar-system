@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ControlPanel from "./components/ControlPanel";
 import SolarSystemScene from "./components/SolarSystemScene";
-import { BODIES, type BodyId, type ClosestApproachResult } from "./domain/solarSystem";
+import { BODIES, isSmallBody, type BodyId, type BodyPosition, type ClosestApproachResult } from "./domain/solarSystem";
 import {
   EVENT_TYPE_BY_ID,
   getEventTargetOptions,
@@ -10,10 +10,12 @@ import {
   type CatalogEventType,
 } from "./domain/eventTypes";
 import { findClosestApproach, getBodyPositions } from "./lib/ephemeris";
-import { findNextEvent, SEARCH_HORIZON_YEARS, type CatalogEventResult } from "./lib/eventCatalogApi";
+import { getBackendBodyPositions } from "./lib/ephemerisApi";
+import { interpolateTrajectory, loadSmallBodyTrajectoriesWithRetry, type SmallBodyTrajectory } from "./lib/smallBodyTrajectory";
+import { findNextEvent, isJplSource, SEARCH_HORIZON_YEARS, type CatalogEventResult } from "./lib/eventCatalogApi";
 
 const INITIAL_DATE = new Date();
-const DEFAULT_VISIBLE_BODIES = BODIES.map((body) => body.id);
+const DEFAULT_VISIBLE_BODIES = BODIES.filter((body) => !isSmallBody(body.id)).map((body) => body.id);
 
 export default function App() {
   const [currentTime, setCurrentTime] = useState(INITIAL_DATE);
@@ -28,6 +30,10 @@ export default function App() {
   >(null);
   const [isSearching, setIsSearching] = useState(false);
   const [eventStatus, setEventStatus] = useState<string | null>(null);
+  const [smallBodyTrajectories, setSmallBodyTrajectories] = useState<
+    Partial<Record<BodyId, SmallBodyTrajectory>>
+  >({});
+  const [liveSmallBodyPositions, setLiveSmallBodyPositions] = useState<BodyPosition[]>([]);
   const lastFrameMs = useRef<number | null>(null);
 
   const eventPairIsValid = useMemo(
@@ -73,10 +79,100 @@ export default function App() {
     return () => window.cancelAnimationFrame(animationFrameId);
   }, [isPlaying, speedDaysPerSecond]);
 
-  const positions = useMemo(
-    () => getBodyPositions(visibleBodies, currentTime),
-    [currentTime, visibleBodies],
+  useEffect(() => {
+    let cancelled = false;
+
+    void loadSmallBodyTrajectoriesWithRetry().then((trajectories) => {
+      if (!cancelled) {
+        setSmallBodyTrajectories(trajectories);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const visibleSmallBodies = useMemo(
+    () => visibleBodies.filter((body) => isSmallBody(body)),
+    [visibleBodies],
   );
+  const simulatedDayKey = Math.floor(currentTime.getTime() / 86_400_000);
+
+  const smallBodiesNeedingLiveFetch = useMemo(
+    () =>
+      visibleSmallBodies.filter((body) => {
+        const trajectory = smallBodyTrajectories[body];
+        return !trajectory?.length;
+      }),
+    [smallBodyTrajectories, visibleSmallBodies],
+  );
+
+  useEffect(() => {
+    if (smallBodiesNeedingLiveFetch.length === 0) {
+      setLiveSmallBodyPositions([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    void getBackendBodyPositions(smallBodiesNeedingLiveFetch, currentTime)
+      .then((positions) => {
+        if (!cancelled) {
+          setLiveSmallBodyPositions(positions);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLiveSmallBodyPositions([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [simulatedDayKey, smallBodiesNeedingLiveFetch]);
+
+  const interpolatedSmallBodyPositions = useMemo(
+    () =>
+      visibleSmallBodies
+        .map((body) => {
+          const trajectory = smallBodyTrajectories[body];
+          if (!trajectory?.length) {
+            return null;
+          }
+
+          const positionAu = interpolateTrajectory(trajectory, currentTime, body);
+          if (!positionAu) {
+            return null;
+          }
+
+          return { body, positionAu };
+        })
+        .filter((position): position is BodyPosition => position !== null),
+    [currentTime, smallBodyTrajectories, visibleSmallBodies],
+  );
+
+  const positions = useMemo(() => {
+    const majorBodies = visibleBodies.filter((body) => !isSmallBody(body));
+    const majorPositions = getBodyPositions(majorBodies, currentTime);
+    const liveByBody = new Map(liveSmallBodyPositions.map((position) => [position.body, position]));
+    const interpolatedByBody = new Map(
+      interpolatedSmallBodyPositions.map((position) => [position.body, position]),
+    );
+
+    const smallBodyPositions = visibleSmallBodies
+      .map((body) => interpolatedByBody.get(body) ?? liveByBody.get(body))
+      .filter((position): position is BodyPosition => position !== undefined);
+
+    return [...majorPositions, ...smallBodyPositions];
+  }, [
+    currentTime,
+    interpolatedSmallBodyPositions,
+    liveSmallBodyPositions,
+    visibleBodies,
+    visibleSmallBodies,
+  ]);
 
   const handleToggleBody = (body: BodyId) => {
     setVisibleBodies((bodies) =>
@@ -154,8 +250,8 @@ export default function App() {
       ensureBodiesVisible(result.bodyA, result.bodyB);
       setEventResult(result);
       setEventStatus(
-        result.validationStatus === "validated"
-          ? "Loaded validated event."
+        result.validationStatus === "validated" || isJplSource(result.source) || isJplSource(result.computedSource)
+          ? "Loaded event."
           : "Loaded provisional event.",
       );
     } catch (error) {
@@ -200,6 +296,8 @@ export default function App() {
           currentTime={currentTime}
           highlightedBodies={highlightedBodies}
           positions={positions}
+          smallBodyTrajectories={smallBodyTrajectories}
+          visibleBodies={visibleBodies}
         />
       </section>
 

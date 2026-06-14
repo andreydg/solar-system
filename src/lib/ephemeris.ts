@@ -20,7 +20,7 @@ const astronomyApi = Astronomy as typeof Astronomy & {
   HelioVector: (body: AstronomyBody, time: Date) => AstronomyVector;
 };
 
-const ASTRO_BODY_BY_ID: Record<BodyId, AstronomyBody> = {
+const ASTRO_BODY_BY_ID: Partial<Record<BodyId, AstronomyBody>> = {
   mercury: astronomyApi.Body.Mercury,
   venus: astronomyApi.Body.Venus,
   earth: astronomyApi.Body.Earth,
@@ -32,7 +32,12 @@ const ASTRO_BODY_BY_ID: Record<BodyId, AstronomyBody> = {
 };
 
 export function getBodyPosition(body: BodyId, time: Date): BodyPosition {
-  const vector = astronomyApi.HelioVector(ASTRO_BODY_BY_ID[body], time);
+  const astroBody = ASTRO_BODY_BY_ID[body];
+  if (!astroBody) {
+    throw new Error(`Browser ephemeris does not support ${body}`);
+  }
+
+  const vector = astronomyApi.HelioVector(astroBody, time);
 
   return {
     body,

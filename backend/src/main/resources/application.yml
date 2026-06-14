@@ -17,3 +17,6 @@ solar-system:
   jpl:
     base-url: https://ssd.jpl.nasa.gov/api/horizons.api
     async-validation-enabled: ${JPL_ASYNC_VALIDATION_ENABLED:true}
+  trajectories:
+    cache-dir: ${TRAJECTORY_CACHE_DIR:./data/trajectories}
+    refresh-from-jpl: ${TRAJECTORY_REFRESH_FROM_JPL:false}

@@ -1,4 +1,4 @@
-import { BODIES, type BodyId } from "./solarSystem";
+import { BODIES, SMALL_BODY_IDS, type BodyId } from "./solarSystem";
 
 export type CatalogEventType =
   | "brightestApproach"
@@ -7,12 +7,13 @@ export type CatalogEventType =
   | "farthestApproach"
   | "greatestElongation"
   | "opposition"
+  | "perihelion"
   | "retrogradeEnd"
   | "retrogradeStart"
   | "stationary"
   | "transit";
 
-export type EventPairing = "any" | "earth" | "earthInner";
+export type EventPairing = "any" | "earth" | "earthInner" | "smallBody";
 
 export type EventTypeDefinition = {
   description: string;
@@ -20,6 +21,7 @@ export type EventTypeDefinition = {
   innerTargets?: BodyId[];
   label: string;
   pairing: EventPairing;
+  smallBodyTargets?: BodyId[];
 };
 
 export const EVENT_TYPES: EventTypeDefinition[] = [
@@ -28,7 +30,7 @@ export const EVENT_TYPES: EventTypeDefinition[] = [
     label: "Closest approach",
     pairing: "any",
     description:
-      "When two bodies are nearest in space. Works for any planet pair and reports the separation distance.",
+      "When two bodies are nearest in space. Works for any catalog body pair and reports the separation distance.",
   },
   {
     id: "farthestApproach",
@@ -42,14 +44,14 @@ export const EVENT_TYPES: EventTypeDefinition[] = [
     label: "Opposition",
     pairing: "earth",
     description:
-      "When a planet appears opposite the Sun in Earth's sky (~180° apart). Often the best time to observe outer planets.",
+      "When a body appears opposite the Sun in Earth's sky (~180° apart). Often the best time to observe outer planets, asteroids, and comets.",
   },
   {
     id: "conjunction",
     label: "Conjunction",
     pairing: "earth",
     description:
-      "When a planet appears near the Sun in Earth's sky (~0° apart). Usually hard to see because of daylight.",
+      "When a body appears near the Sun in Earth's sky (~0° apart). Usually hard to see because of daylight.",
   },
   {
     id: "greatestElongation",
@@ -64,21 +66,21 @@ export const EVENT_TYPES: EventTypeDefinition[] = [
     label: "Stationary",
     pairing: "earth",
     description:
-      "When a planet's apparent motion across the sky briefly stops before changing direction, as seen from Earth.",
+      "When a body's apparent motion across the sky briefly stops before changing direction, as seen from Earth.",
   },
   {
     id: "retrogradeStart",
     label: "Retrograde start",
     pairing: "earth",
     description:
-      "When a planet begins moving westward relative to the stars, reversing its usual eastward motion.",
+      "When a body begins moving westward relative to the stars, reversing its usual eastward motion.",
   },
   {
     id: "retrogradeEnd",
     label: "Retrograde end",
     pairing: "earth",
     description:
-      "When a planet resumes its normal eastward motion after a retrograde loop.",
+      "When a body resumes its normal eastward motion after a retrograde loop.",
   },
   {
     id: "transit",
@@ -94,6 +96,14 @@ export const EVENT_TYPES: EventTypeDefinition[] = [
     pairing: "earth",
     description:
       "When a planet appears brightest from Earth, based on distance and viewing geometry. Good for planning observations.",
+  },
+  {
+    id: "perihelion",
+    label: "Perihelion",
+    pairing: "smallBody",
+    smallBodyTargets: SMALL_BODY_IDS,
+    description:
+      "When a comet or asteroid is closest to the Sun. Reports the heliocentric distance at perihelion.",
   },
 ];
 
@@ -114,6 +124,10 @@ export function getEventTargetOptions(type: CatalogEventType): BodyId[] {
 
   if (definition.pairing === "earthInner") {
     return definition.innerTargets ?? [];
+  }
+
+  if (definition.pairing === "smallBody") {
+    return definition.smallBodyTargets ?? SMALL_BODY_IDS;
   }
 
   return BODIES.map((body) => body.id).filter((body) => body !== "earth");
@@ -142,9 +156,37 @@ export function isValidEventPair(type: CatalogEventType, bodyA: BodyId, bodyB: B
     return definition.innerTargets?.includes(bodyB) ?? false;
   }
 
+  if (definition.pairing === "smallBody") {
+    return definition.smallBodyTargets?.includes(bodyB) ?? false;
+  }
+
   return bodyB !== "earth";
 }
 
 export function formatEventTypeLabel(type: CatalogEventType) {
   return EVENT_TYPE_BY_ID[type].label.toLowerCase();
 }
+
+export function formatEventPairingNote(type: CatalogEventType) {
+  const definition = EVENT_TYPE_BY_ID[type];
+
+  switch (definition.pairing) {
+    case "any":
+      return "Any two catalog bodies";
+    case "earth":
+      return "Earth observer + one target body";
+    case "earthInner":
+      return "Earth observer + Mercury or Venus";
+    case "smallBody":
+      return "Earth observer + Ceres, Vesta, Encke, or Halley";
+  }
+}
+
+export const JPL_VALIDATED_EVENT_TYPES = new Set<CatalogEventType>([
+  "closestApproach",
+  "farthestApproach",
+  "opposition",
+  "conjunction",
+  "greatestElongation",
+  "perihelion",
+]);
