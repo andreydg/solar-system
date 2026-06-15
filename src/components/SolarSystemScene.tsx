@@ -31,7 +31,7 @@ export default function SolarSystemScene({
 
   return (
     <Canvas camera={{ position: [0, 38, 42], fov: 48 }} dpr={[1, 2]}>
-      <color attach="background" args={["#030712"]} />
+      <color attach="background" args={["#050505"]} />
       <ambientLight intensity={0.35} />
       <pointLight color="#fff2c0" intensity={900} position={[0, 0, 0]} />
       <Stars count={3500} depth={80} factor={4} fade radius={120} speed={0.25} />

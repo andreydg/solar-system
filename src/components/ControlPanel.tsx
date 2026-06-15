@@ -92,7 +92,7 @@ export default function ControlPanel({
   return (
     <aside className="control-panel" aria-label="Simulation controls">
       <div>
-        <h1>Solar System Explorer</h1>
+        <h1 style={{ textAlign: "center" }}>[Solar System Explorer]</h1>
       </div>
 
       <section className="control-section">
