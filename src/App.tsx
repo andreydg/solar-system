@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import ControlPanel from "./components/ControlPanel";
-import SolarSystemScene from "./components/SolarSystemScene";
+
+// The 3D scene pulls in three.js + @react-three/*, the bulk of the bundle. Load it lazily
+// so the control panel and initial shell paint without waiting on the heavy WebGL chunk.
+const SolarSystemScene = lazy(() => import("./components/SolarSystemScene"));
 import { BODIES, isSmallBody, type BodyId, type BodyPosition, type ClosestApproachResult } from "./domain/solarSystem";
 import {
   EVENT_TYPE_BY_ID,
@@ -315,13 +318,15 @@ export default function App() {
   return (
     <main className="app-shell">
       <section className="hero-panel" aria-label="Solar system simulation">
-        <SolarSystemScene
-          currentTime={currentTime}
-          highlightedBodies={highlightedBodies}
-          positions={positions}
-          smallBodyTrajectories={smallBodyTrajectories}
-          visibleBodies={visibleBodies}
-        />
+        <Suspense fallback={<div className="scene-loading">Loading 3D view…</div>}>
+          <SolarSystemScene
+            currentTime={currentTime}
+            highlightedBodies={highlightedBodies}
+            positions={positions}
+            smallBodyTrajectories={smallBodyTrajectories}
+            visibleBodies={visibleBodies}
+          />
+        </Suspense>
       </section>
 
       <ControlPanel

@@ -105,6 +105,16 @@ input[type="range"] {
     #050505;
 }
 
+.scene-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  color: rgba(231, 213, 169, 0.6);
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+}
+
 .control-panel {
   position: relative;
   z-index: 2147483640;
