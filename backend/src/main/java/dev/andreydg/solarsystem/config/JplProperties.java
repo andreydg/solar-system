@@ -5,6 +5,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "solar-system.jpl")
 public record JplProperties(
     String baseUrl,
-    boolean asyncValidationEnabled
+    boolean asyncValidationEnabled,
+    int maxConcurrentRequests,
+    int maxRetries,
+    long retryBackoffMillis
 ) {
 }

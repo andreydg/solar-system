@@ -36,7 +36,7 @@ public class JplValidationService {
         return horizonsClient.vector(body, timeUtc);
     }
 
-    @Async
+    @Async("jplValidationExecutor")
     @EventListener
     public void validateGeneratedEvents(CatalogEventsGeneratedEvent generatedEvent) {
         if (!properties.asyncValidationEnabled()) {
@@ -46,14 +46,25 @@ public class JplValidationService {
         for (String eventId : generatedEvent.eventIds()) {
             try {
                 validateEvent(eventId);
+            } catch (JplHorizonsException exception) {
+                if (exception.isTransient()) {
+                    // Leave the event PENDING so it can be revalidated later instead of marking it
+                    // FAILED on a temporary outage (timeout, HTTP 429/5xx).
+                    continue;
+                }
+                markFailed(eventId, exception);
             } catch (RuntimeException exception) {
-                catalogService.findById(eventId)
-                    .ifPresent(event -> catalogService.storeValidationFailure(
-                        event,
-                        "JPL validation failed: " + sanitizeFailureMessage(exception)
-                    ));
+                markFailed(eventId, exception);
             }
         }
+    }
+
+    private void markFailed(String eventId, RuntimeException exception) {
+        catalogService.findById(eventId)
+            .ifPresent(event -> catalogService.storeValidationFailure(
+                event,
+                "JPL validation failed: " + sanitizeFailureMessage(exception)
+            ));
     }
 
     public CatalogEvent validateEvent(String eventId) {

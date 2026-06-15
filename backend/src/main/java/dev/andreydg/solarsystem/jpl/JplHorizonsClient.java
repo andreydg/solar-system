@@ -16,9 +16,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
 import java.util.stream.Collectors;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 @Component
@@ -49,10 +52,12 @@ public class JplHorizonsClient {
 
     private final JplProperties properties;
     private final RestClient restClient;
+    private final Semaphore concurrencyLimiter;
 
     public JplHorizonsClient(JplProperties properties, RestClient.Builder restClientBuilder) {
         this.properties = properties;
         this.restClient = restClientBuilder.build();
+        this.concurrencyLimiter = new Semaphore(Math.max(1, properties.maxConcurrentRequests()));
     }
 
     public JplVector vector(BodyId body, Instant timeUtc) {
@@ -89,6 +94,33 @@ public class JplHorizonsClient {
     }
 
     private String fetchResponse(BodyId body, Instant contextTime, URI uri) {
+        int maxAttempts = Math.max(1, properties.maxRetries());
+        JplHorizonsException lastTransient = null;
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return fetchOnce(body, contextTime, uri);
+            } catch (JplHorizonsException exception) {
+                if (!exception.isTransient()) {
+                    throw exception;
+                }
+                lastTransient = exception;
+                if (attempt < maxAttempts) {
+                    backoff(attempt);
+                }
+            }
+        }
+
+        throw new JplHorizonsException(
+            "JPL Horizons request failed after %d attempts: %s".formatted(
+                maxAttempts, lastTransient == null ? "unknown error" : lastTransient.getMessage()),
+            lastTransient,
+            true
+        );
+    }
+
+    private String fetchOnce(BodyId body, Instant contextTime, URI uri) {
+        concurrencyLimiter.acquireUninterruptibly();
         try {
             String response = restClient.get()
                 .uri(uri)
@@ -96,23 +128,48 @@ public class JplHorizonsClient {
                 .body(String.class);
 
             if (response == null || response.isBlank()) {
-                throw new JplHorizonsException("JPL Horizons returned an empty response");
+                // An empty body is usually a transient hiccup rather than a bad request.
+                throw new JplHorizonsException("JPL Horizons returned an empty response", true);
             }
 
             validateResponse(response);
             return response;
+        } catch (ResourceAccessException exception) {
+            // Connection/read timeouts and other I/O errors are transient.
+            throw new JplHorizonsException(
+                "JPL Horizons connection failed for %s at %s: %s".formatted(
+                    body.apiValue(), contextTime, exception.getMessage()),
+                exception,
+                true
+            );
         } catch (HttpStatusCodeException exception) {
+            HttpStatusCode status = exception.getStatusCode();
+            boolean transientStatus = status.is5xxServerError() || status.value() == 429;
             throw new JplHorizonsException(
                 "JPL Horizons returned HTTP %s for %s at %s: %s".formatted(
-                    exception.getStatusCode(),
+                    status,
                     body.apiValue(),
                     contextTime,
                     exception.getResponseBodyAsString().lines()
                         .filter(line -> !line.isBlank())
                         .reduce((first, second) -> second)
                         .orElse("no response body")
-                )
+                ),
+                transientStatus
             );
+        } finally {
+            concurrencyLimiter.release();
+        }
+    }
+
+    private void backoff(int attempt) {
+        // Exponential backoff: base * 2^(attempt-1).
+        long delayMillis = properties.retryBackoffMillis() * (1L << (attempt - 1));
+        try {
+            Thread.sleep(delayMillis);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new JplHorizonsException("Interrupted while backing off before JPL retry", interrupted, true);
         }
     }
 
