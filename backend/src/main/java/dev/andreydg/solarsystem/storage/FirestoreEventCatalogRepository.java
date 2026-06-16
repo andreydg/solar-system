@@ -1,24 +1,33 @@
 package dev.andreydg.solarsystem.storage;
 
 import com.google.cloud.firestore.Firestore;
+import com.google.cloud.firestore.QueryDocumentSnapshot;
+import com.google.cloud.firestore.WriteBatch;
 import dev.andreydg.solarsystem.catalog.BodyId;
 import dev.andreydg.solarsystem.catalog.CatalogEvent;
 import dev.andreydg.solarsystem.catalog.EventType;
 import dev.andreydg.solarsystem.catalog.ValidationStatus;
 import dev.andreydg.solarsystem.config.FirestoreProperties;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
 
 @Repository
 @ConditionalOnProperty(name = "solar-system.storage", havingValue = "firestore", matchIfMissing = true)
 public class FirestoreEventCatalogRepository implements EventCatalogRepository {
+    private static final Logger log = LoggerFactory.getLogger(FirestoreEventCatalogRepository.class);
+    // Firestore caps a batched write at 500 operations; stay under it with margin.
+    private static final int MAX_BATCH_SIZE = 450;
+
     private final Firestore firestore;
     private final String collection;
 
@@ -29,7 +38,26 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
 
     @Override
     public void upsertAll(List<CatalogEvent> events) {
-        events.forEach(this::upsert);
+        if (events.isEmpty()) {
+            return;
+        }
+
+        try {
+            // Commit in batches instead of one round-trip per document.
+            for (int start = 0; start < events.size(); start += MAX_BATCH_SIZE) {
+                List<CatalogEvent> chunk = events.subList(start, Math.min(start + MAX_BATCH_SIZE, events.size()));
+                WriteBatch batch = firestore.batch();
+                for (CatalogEvent event : chunk) {
+                    batch.set(firestore.collection(collection).document(event.id()), toDocument(event));
+                }
+                batch.commit().get();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new EventCatalogStorageException("Interrupted while writing events", e);
+        } catch (ExecutionException e) {
+            throw new EventCatalogStorageException("Failed to write events", e);
+        }
     }
 
     @Override
@@ -57,15 +85,15 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
     ) {
         BodyIdOrdered ordered = getStoredOrder(type, bodyA, bodyB);
         try {
-            return firestore.collection(collection)
+            var documents = firestore.collection(collection)
                 .whereEqualTo("type", type.apiValue())
                 .whereEqualTo("bodyA", ordered.bodyA().apiValue())
                 .whereEqualTo("bodyB", ordered.bodyB().apiValue())
                 .get()
                 .get()
-                .getDocuments()
-                .stream()
-                .map(snapshot -> fromDocument(snapshot.getData()))
+                .getDocuments();
+
+            return toEventsSkippingMalformed(documents).stream()
                 .filter(event -> !event.displayTimeUtc().isBefore(from) && !event.displayTimeUtc().isAfter(to))
                 .sorted(Comparator.comparing(CatalogEvent::displayTimeUtc))
                 .toList();
@@ -93,13 +121,13 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
     @Override
     public List<CatalogEvent> findAllValidated() {
         try {
-            return firestore.collection(collection)
+            var documents = firestore.collection(collection)
                 .whereEqualTo("validationStatus", ValidationStatus.VALIDATED.storedValue())
                 .get()
                 .get()
-                .getDocuments()
-                .stream()
-                .map(snapshot -> fromDocument(snapshot.getData()))
+                .getDocuments();
+
+            return toEventsSkippingMalformed(documents).stream()
                 .sorted(Comparator.comparing(CatalogEvent::displayTimeUtc))
                 .toList();
         } catch (InterruptedException e) {
@@ -108,6 +136,19 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
         } catch (ExecutionException e) {
             throw new EventCatalogStorageException("Failed to query validated events", e);
         }
+    }
+
+    private List<CatalogEvent> toEventsSkippingMalformed(List<QueryDocumentSnapshot> documents) {
+        List<CatalogEvent> events = new ArrayList<>(documents.size());
+        for (QueryDocumentSnapshot snapshot : documents) {
+            try {
+                events.add(fromDocument(snapshot.getData()));
+            } catch (RuntimeException exception) {
+                // A single corrupt or legacy-shaped document must not fail the whole query.
+                log.warn("Skipping malformed catalog document {}: {}", snapshot.getId(), exception.toString());
+            }
+        }
+        return events;
     }
 
     private static boolean matchesPair(CatalogEvent event, BodyId bodyA, BodyId bodyB) {
@@ -121,6 +162,8 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
         document.put("type", event.type().apiValue());
         document.put("bodyA", event.bodyA().apiValue());
         document.put("bodyB", event.bodyB().apiValue());
+        // Denormalized so it can back a server-side time-range index/query as the catalog grows.
+        document.put("displayTimeUtc", event.displayTimeUtc().toString());
         document.put("computedTimeUtc", event.computedTimeUtc().toString());
         document.put("computedDistanceAu", event.computedDistanceAu());
         document.put("computedAngleDeg", event.computedAngleDeg());

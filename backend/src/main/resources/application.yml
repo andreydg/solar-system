@@ -1,5 +1,6 @@
 server:
   port: ${PORT:8080}
+  shutdown: graceful
 
 spring:
   application:
@@ -7,6 +8,19 @@ spring:
   threads:
     virtual:
       enabled: true
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
 
 solar-system:
   storage: ${SOLAR_SYSTEM_STORAGE:firestore}
@@ -17,6 +31,11 @@ solar-system:
   jpl:
     base-url: https://ssd.jpl.nasa.gov/api/horizons.api
     async-validation-enabled: ${JPL_ASYNC_VALIDATION_ENABLED:true}
+    # Cap concurrent outbound requests to JPL Horizons so a burst of validations cannot flood it.
+    max-concurrent-requests: ${JPL_MAX_CONCURRENT_REQUESTS:2}
+    # Retries with exponential backoff for transient failures (timeouts, HTTP 429/5xx).
+    max-retries: ${JPL_MAX_RETRIES:3}
+    retry-backoff-millis: ${JPL_RETRY_BACKOFF_MILLIS:750}
   trajectories:
     cache-dir: ${TRAJECTORY_CACHE_DIR:./data/trajectories}
     refresh-from-jpl: ${TRAJECTORY_REFRESH_FROM_JPL:false}

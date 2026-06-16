@@ -29,7 +29,11 @@ class JplValidationServiceTests {
     private final JplHorizonsClient horizonsClient = mock(JplHorizonsClient.class);
     private final EventCatalogService catalogService = mock(EventCatalogService.class);
     private final JplValidationService service =
-        new JplValidationService(catalogService, horizonsClient, new JplProperties("http://example", false));
+        new JplValidationService(catalogService, horizonsClient, jplProperties(false));
+
+    private static JplProperties jplProperties(boolean asyncEnabled) {
+        return new JplProperties("http://example", asyncEnabled, 2, 3, 1);
+    }
 
     private static final Instant EVENT_TIME = Instant.parse("2027-02-19T00:00:00Z");
 
@@ -79,6 +83,37 @@ class JplValidationServiceTests {
         // 6h coarse / 1h refined steps must be expressed in minutes, matching the working "Nm" form.
         assertThat(step.getAllValues()).allSatisfy(value -> assertThat(value).matches("\\d+m"));
         assertThat(step.getAllValues()).contains("360m", "60m");
+    }
+
+    @Test
+    void leavesEventPendingOnTransientFailure() {
+        JplValidationService asyncService =
+            new JplValidationService(catalogService, horizonsClient, jplProperties(true));
+        CatalogEvent event = distanceEvent(EventType.CLOSEST_APPROACH, 0.6);
+        when(catalogService.findById("evt")).thenReturn(Optional.of(event));
+        when(horizonsClient.vectors(any(), any(), any(), any()))
+            .thenThrow(new JplHorizonsException("connection timed out", true));
+
+        asyncService.validateGeneratedEvents(
+            new dev.andreydg.solarsystem.catalog.CatalogEventsGeneratedEvent(List.of("evt")));
+
+        // A transient failure must not mark the event FAILED; it stays PENDING for later retry.
+        verify(catalogService, never()).storeValidationFailure(any(), any());
+    }
+
+    @Test
+    void marksEventFailedOnPermanentFailure() {
+        JplValidationService asyncService =
+            new JplValidationService(catalogService, horizonsClient, jplProperties(true));
+        CatalogEvent event = distanceEvent(EventType.CLOSEST_APPROACH, 0.6);
+        when(catalogService.findById("evt")).thenReturn(Optional.of(event));
+        when(horizonsClient.vectors(any(), any(), any(), any()))
+            .thenThrow(new JplHorizonsException("ambiguous target", false));
+
+        asyncService.validateGeneratedEvents(
+            new dev.andreydg.solarsystem.catalog.CatalogEventsGeneratedEvent(List.of("evt")));
+
+        verify(catalogService).storeValidationFailure(eq(event), any());
     }
 
     private void stubSweep(BodyId body, java.util.function.Function<Instant, Vector3Au> positionAt) {
