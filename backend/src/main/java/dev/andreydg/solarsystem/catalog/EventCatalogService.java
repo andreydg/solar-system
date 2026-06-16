@@ -461,6 +461,14 @@ public class EventCatalogService {
             current = next;
         }
 
+        if (target != BodyId.MERCURY && target != BodyId.VENUS) {
+            candidates.removeIf(sample -> {
+                Vector3Au earth = ephemerisProvider.heliocentricPosition(BodyId.EARTH, sample.time());
+                Vector3Au planet = ephemerisProvider.heliocentricPosition(target, sample.time());
+                return earth.dot(planet) < 0.0;
+            });
+        }
+
         Instant generatedAt = Instant.now();
         return candidates.stream()
             .map(sample -> refineMagnitudeMinimum(

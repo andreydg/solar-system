@@ -107,4 +107,19 @@ class EventCatalogCombinationTests {
             assertThat(generated.getFirst().displayDistanceAu()).isPositive();
         }
     }
+
+    @Test
+    void brightestApproachForMarsOnlyOccursNearOpposition() {
+        Instant from = Instant.parse("2026-01-01T00:00:00Z");
+        Instant to = Instant.parse("2029-01-01T00:00:00Z");
+        
+        var events = service.generate(EventType.BRIGHTEST_APPROACH, BodyId.EARTH, BodyId.MARS, from, to);
+        
+        assertThat(events).isNotEmpty();
+        for (var event : events) {
+            // Brightest approach for Mars should be a genuine peak (very bright, < -1.0)
+            // It should not generate false peaks at conjunction (which would be > +1.0)
+            assertThat(event.computedMagnitude()).isLessThan(-1.0);
+        }
+    }
 }
