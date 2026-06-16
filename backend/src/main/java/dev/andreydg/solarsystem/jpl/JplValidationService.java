@@ -9,6 +9,9 @@ import dev.andreydg.solarsystem.ephemeris.Vector3Au;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -197,13 +200,28 @@ public class JplValidationService {
         Duration step,
         boolean findMinimum
     ) {
-        DistanceSample best = sampleJplDistance(bodyA, bodyB, from);
+        // Fetch the whole window in two batched range requests instead of one HTTP call per
+        // grid point per body (which was ~70 sequential calls for a single distance event).
+        String horizonsStep = horizonsStep(step);
+        List<JplVector> samplesA = horizonsClient.vectors(bodyA, from, to, horizonsStep);
+        Map<Instant, Vector3Au> samplesB = horizonsClient.vectors(bodyB, from, to, horizonsStep).stream()
+            .collect(Collectors.toMap(JplVector::requestedTimeUtc, JplVector::positionAu, (first, second) -> first));
 
-        for (Instant time = from.plus(step); !time.isAfter(to); time = time.plus(step)) {
-            DistanceSample sample = sampleJplDistance(bodyA, bodyB, time);
-            if (findMinimum ? sample.distanceAu() < best.distanceAu() : sample.distanceAu() > best.distanceAu()) {
-                best = sample;
+        DistanceSample best = null;
+        for (JplVector sampleA : samplesA) {
+            Vector3Au positionB = samplesB.get(sampleA.requestedTimeUtc());
+            if (positionB == null) {
+                continue;
             }
+
+            double distanceAu = sampleA.positionAu().distanceTo(positionB);
+            if (best == null || (findMinimum ? distanceAu < best.distanceAu() : distanceAu > best.distanceAu())) {
+                best = new DistanceSample(sampleA.requestedTimeUtc(), distanceAu);
+            }
+        }
+
+        if (best == null) {
+            throw new JplHorizonsException("JPL Horizons returned no overlapping samples for the distance window");
         }
 
         return new DistanceSample(best.time().truncatedTo(ChronoUnit.SECONDS), best.distanceAu());
@@ -219,38 +237,25 @@ public class JplValidationService {
         return geoPlanet.angleBetweenDeg(sunDirection);
     }
 
-    private DistanceSample findJplDistanceMinimum(
-        BodyId bodyA,
-        BodyId bodyB,
-        Instant from,
-        Instant to,
-        Duration step
-    ) {
-        return findJplDistanceExtremum(bodyA, bodyB, from, to, step, true);
-    }
-
-    private DistanceSample sampleJplDistance(BodyId bodyA, BodyId bodyB, Instant time) {
-        JplVector vectorA = horizonsClient.vector(bodyA, time);
-        JplVector vectorB = horizonsClient.vector(bodyB, time);
-        return new DistanceSample(time, vectorA.positionAu().distanceTo(vectorB.positionAu()));
-    }
-
-    private DistanceSample sampleJplHeliocentricDistance(BodyId body, Instant time) {
-        JplVector vector = horizonsClient.vector(body, time);
-        return new DistanceSample(time, vector.positionAu().magnitude());
-    }
-
     private DistanceSample findJplHeliocentricMinimum(BodyId body, Instant from, Instant to, Duration step) {
-        DistanceSample best = sampleJplHeliocentricDistance(body, from);
-
-        for (Instant time = from.plus(step); !time.isAfter(to); time = time.plus(step)) {
-            DistanceSample sample = sampleJplHeliocentricDistance(body, time);
-            if (sample.distanceAu() < best.distanceAu()) {
-                best = sample;
+        DistanceSample best = null;
+        for (JplVector sample : horizonsClient.vectors(body, from, to, horizonsStep(step))) {
+            double distanceAu = sample.positionAu().magnitude();
+            if (best == null || distanceAu < best.distanceAu()) {
+                best = new DistanceSample(sample.requestedTimeUtc(), distanceAu);
             }
         }
 
+        if (best == null) {
+            throw new JplHorizonsException("JPL Horizons returned no samples for the heliocentric distance window");
+        }
+
         return new DistanceSample(best.time().truncatedTo(ChronoUnit.SECONDS), best.distanceAu());
+    }
+
+    private static String horizonsStep(Duration step) {
+        long minutes = Math.max(1, step.toMinutes());
+        return minutes + "m";
     }
 
     private double jplRelativeLongitude(BodyId bodyA, BodyId bodyB, Instant time) {
