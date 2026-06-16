@@ -730,14 +730,18 @@ public class EventCatalogService {
         Vector3Au planet = ephemerisProvider.heliocentricPosition(target, time);
         double heliocentricDistanceAu = planet.magnitude();
         double geocentricDistanceAu = planet.distanceTo(earth);
-        double baseMagnitude = BASE_MAGNITUDE.getOrDefault(target, 0.0);
 
         Vector3Au planetToSun = planet.negate();
         Vector3Au planetToEarth = earth.minus(planet);
         double alphaDeg = planetToSun.angleBetweenDeg(planetToEarth);
 
-        double magnitude = baseMagnitude + 5.0 * Math.log10(heliocentricDistanceAu * geocentricDistanceAu) + phaseCorrection(target, alphaDeg);
+        double magnitude = computeVisualMagnitude(target, heliocentricDistanceAu, geocentricDistanceAu, alphaDeg);
         return new MagnitudeSample(time, magnitude);
+    }
+
+    public double computeVisualMagnitude(BodyId target, double heliocentricDistanceAu, double geocentricDistanceAu, double phaseAngleDeg) {
+        double baseMagnitude = BASE_MAGNITUDE.getOrDefault(target, 0.0);
+        return baseMagnitude + 5.0 * Math.log10(heliocentricDistanceAu * geocentricDistanceAu) + phaseCorrection(target, phaseAngleDeg);
     }
 
     private RateSample sampleLongitudeRate(BodyId target, Instant time) {

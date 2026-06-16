@@ -75,8 +75,11 @@ public class JplValidationService {
             case CLOSEST_APPROACH -> validateDistanceExtremum(event, true);
             case FARTHEST_APPROACH -> validateDistanceExtremum(event, false);
             case OPPOSITION, CONJUNCTION -> validateAngularEvent(event);
-            case GREATEST_ELONGATION -> validateElongation(event);
+            case GREATEST_ELONGATION -> validateElongationExtremum(event, false);
+            case TRANSIT -> validateElongationExtremum(event, true);
             case PERIHELION -> validatePerihelion(event);
+            case BRIGHTEST_APPROACH -> validateBrightestApproach(event);
+            case STATIONARY, RETROGRADE_START, RETROGRADE_END -> validateMotionEvent(event);
             default -> event;
         };
     }
@@ -160,26 +163,146 @@ public class JplValidationService {
         );
     }
 
-    private CatalogEvent validateElongation(CatalogEvent event) {
+    private CatalogEvent validateBrightestApproach(CatalogEvent event) {
+        if (event.computedMagnitude() == null) {
+            throw new JplHorizonsException("Brightest approach event did not include computed magnitude");
+        }
+
+        BodyId target = event.bodyA() == BodyId.EARTH ? event.bodyB() : event.bodyA();
+
+        MagnitudeSample coarseBest = findJplBrightestApproach(
+            target,
+            event.computedTimeUtc().minus(Duration.ofDays(2)),
+            event.computedTimeUtc().plus(Duration.ofDays(2)),
+            Duration.ofHours(6)
+        );
+        MagnitudeSample refinedBest = findJplBrightestApproach(
+            target,
+            coarseBest.time().minus(Duration.ofHours(9)),
+            coarseBest.time().plus(Duration.ofHours(9)),
+            Duration.ofHours(1)
+        );
+
+        String summary = "JPL corrected brightest approach %s at mag %.4f; computed %s at mag %.4f".formatted(
+            refinedBest.time(),
+            refinedBest.magnitude(),
+            event.computedTimeUtc(),
+            event.computedMagnitude()
+        );
+
+        return catalogService.storeValidation(
+            event,
+            refinedBest.time(),
+            null,
+            null,
+            refinedBest.magnitude(),
+            null,
+            summary
+        );
+    }
+
+    private MagnitudeSample findJplBrightestApproach(BodyId target, Instant from, Instant to, Duration step) {
+        String horizonsStep = horizonsStep(step);
+        List<JplVector> targetSamples = horizonsClient.vectors(target, from, to, horizonsStep);
+        Map<Instant, Vector3Au> earthSamples = horizonsClient.vectors(BodyId.EARTH, from, to, horizonsStep).stream()
+            .collect(Collectors.toMap(JplVector::requestedTimeUtc, JplVector::positionAu, (first, second) -> first));
+
+        MagnitudeSample best = null;
+        for (JplVector targetSample : targetSamples) {
+            Vector3Au earth = earthSamples.get(targetSample.requestedTimeUtc());
+            if (earth == null) {
+                continue;
+            }
+
+            Vector3Au planet = targetSample.positionAu();
+            double helioDist = planet.magnitude();
+            double geoDist = planet.distanceTo(earth);
+
+            Vector3Au planetToSun = planet.negate();
+            Vector3Au planetToEarth = earth.minus(planet);
+            double alphaDeg = planetToSun.angleBetweenDeg(planetToEarth);
+
+            double mag = catalogService.computeVisualMagnitude(target, helioDist, geoDist, alphaDeg);
+
+            if (best == null || mag < best.magnitude()) {
+                best = new MagnitudeSample(targetSample.requestedTimeUtc(), mag);
+            }
+        }
+
+        if (best == null) {
+            throw new JplHorizonsException("JPL Horizons returned no overlapping samples for the brightest approach window");
+        }
+
+        return new MagnitudeSample(best.time().truncatedTo(ChronoUnit.SECONDS), best.magnitude());
+    }
+
+    private CatalogEvent validateElongationExtremum(CatalogEvent event, boolean findMinimum) {
         BodyId targetBody = event.bodyA() == BodyId.EARTH ? event.bodyB() : event.bodyA();
-        double angleDeg = jplElongation(targetBody, event.computedTimeUtc());
-        double computedAngle = event.computedAngleDeg() == null ? angleDeg : event.computedAngleDeg();
-        double deltaDeg = Math.abs(signedAngleDifference(angleDeg, computedAngle));
-        String summary = "JPL elongation %.6f deg; computed elongation %.6f deg; delta %.6f deg".formatted(
-            angleDeg,
+        
+        AngleSample coarseBest = findJplElongationExtremum(
+            targetBody,
+            event.computedTimeUtc().minus(Duration.ofDays(2)),
+            event.computedTimeUtc().plus(Duration.ofDays(2)),
+            Duration.ofHours(6),
+            findMinimum
+        );
+        AngleSample refinedBest = findJplElongationExtremum(
+            targetBody,
+            coarseBest.time().minus(Duration.ofHours(9)),
+            coarseBest.time().plus(Duration.ofHours(9)),
+            Duration.ofHours(1),
+            findMinimum
+        );
+
+        double computedAngle = event.computedAngleDeg() == null ? refinedBest.angleDeg() : event.computedAngleDeg();
+        double deltaDeg = Math.abs(signedAngleDifference(refinedBest.angleDeg(), computedAngle));
+        String summary = "JPL corrected elongation %s at %.6f deg; computed %s at %.6f deg; delta %.6f deg".formatted(
+            refinedBest.time(),
+            refinedBest.angleDeg(),
+            event.computedTimeUtc(),
             computedAngle,
             deltaDeg
         );
 
         return catalogService.storeValidation(
             event,
-            event.computedTimeUtc(),
+            refinedBest.time(),
             null,
-            angleDeg,
+            refinedBest.angleDeg(),
             null,
             null,
             summary
         );
+    }
+
+    private AngleSample findJplElongationExtremum(BodyId targetBody, Instant from, Instant to, Duration step, boolean findMinimum) {
+        String horizonsStep = horizonsStep(step);
+        List<JplVector> earthSamples = horizonsClient.vectors(BodyId.EARTH, from, to, horizonsStep);
+        Map<Instant, Vector3Au> targetSamples = horizonsClient.vectors(targetBody, from, to, horizonsStep).stream()
+            .collect(Collectors.toMap(JplVector::requestedTimeUtc, JplVector::positionAu, (first, second) -> first));
+
+        AngleSample best = null;
+        for (JplVector earthSample : earthSamples) {
+            Vector3Au target = targetSamples.get(earthSample.requestedTimeUtc());
+            if (target == null) {
+                continue;
+            }
+
+            Vector3Au earth = earthSample.positionAu();
+            Vector3Au geoPlanet = target.minus(earth);
+            Vector3Au sunDirection = earth.negate();
+            double angleDeg = geoPlanet.angleBetweenDeg(sunDirection);
+
+            if (best == null || (findMinimum ? angleDeg < best.angleDeg() : angleDeg > best.angleDeg())) {
+                best = new AngleSample(earthSample.requestedTimeUtc(), angleDeg);
+            }
+        }
+
+        if (best == null) {
+            throw new JplHorizonsException("JPL Horizons returned no overlapping samples for the elongation window");
+        }
+
+        return new AngleSample(best.time().truncatedTo(ChronoUnit.SECONDS), best.angleDeg());
     }
 
     private CatalogEvent validateAngularEvent(CatalogEvent event) {
@@ -201,6 +324,77 @@ public class JplValidationService {
             null,
             summary
         );
+    }
+
+    private CatalogEvent validateMotionEvent(CatalogEvent event) {
+        BodyId targetBody = event.bodyA() == BodyId.EARTH ? event.bodyB() : event.bodyA();
+
+        Instant coarseBest = findJplStationaryTime(
+            targetBody,
+            event.computedTimeUtc().minus(Duration.ofDays(2)),
+            event.computedTimeUtc().plus(Duration.ofDays(2)),
+            Duration.ofHours(6)
+        );
+        Instant refinedBest = findJplStationaryTime(
+            targetBody,
+            coarseBest.minus(Duration.ofHours(9)),
+            coarseBest.plus(Duration.ofHours(9)),
+            Duration.ofHours(1)
+        );
+
+        double deltaHours = Math.abs(Duration.between(event.computedTimeUtc(), refinedBest).toMinutes() / 60.0);
+        String summary = "JPL corrected stationary time %s; computed %s; delta %.2f hours".formatted(
+            refinedBest,
+            event.computedTimeUtc(),
+            deltaHours
+        );
+
+        return catalogService.storeValidation(
+            event,
+            refinedBest,
+            null,
+            null,
+            null,
+            null,
+            summary
+        );
+    }
+
+    private Instant findJplStationaryTime(BodyId targetBody, Instant from, Instant to, Duration step) {
+        String horizonsStep = horizonsStep(step);
+        List<JplVector> earthSamples = horizonsClient.vectors(BodyId.EARTH, from, to, horizonsStep);
+        Map<Instant, Vector3Au> targetSamples = horizonsClient.vectors(targetBody, from, to, horizonsStep).stream()
+            .collect(Collectors.toMap(JplVector::requestedTimeUtc, JplVector::positionAu, (first, second) -> first));
+
+        Instant bestTime = null;
+        double minRate = Double.MAX_VALUE;
+        Double prevLongitude = null;
+
+        for (JplVector earthSample : earthSamples) {
+            Vector3Au target = targetSamples.get(earthSample.requestedTimeUtc());
+            if (target == null) {
+                continue;
+            }
+
+            Vector3Au earth = earthSample.positionAu();
+            Vector3Au geoPlanet = target.minus(earth);
+            double longitude = longitudeDeg(geoPlanet.x(), geoPlanet.y());
+
+            if (prevLongitude != null) {
+                double rate = Math.abs(signedAngleDifference(longitude, prevLongitude));
+                if (rate < minRate) {
+                    minRate = rate;
+                    bestTime = earthSample.requestedTimeUtc();
+                }
+            }
+            prevLongitude = longitude;
+        }
+
+        if (bestTime == null) {
+            throw new JplHorizonsException("JPL Horizons returned no overlapping samples for the motion window");
+        }
+
+        return bestTime.truncatedTo(ChronoUnit.SECONDS);
     }
 
     private DistanceSample findJplDistanceExtremum(
@@ -313,5 +507,11 @@ public class JplValidationService {
     }
 
     private record DistanceSample(Instant time, double distanceAu) {
+    }
+
+    private record MagnitudeSample(Instant time, double magnitude) {
+    }
+
+    private record AngleSample(Instant time, double angleDeg) {
     }
 }

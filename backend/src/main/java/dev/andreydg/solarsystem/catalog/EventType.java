@@ -49,9 +49,6 @@ public enum EventType {
     }
 
     public boolean supportsJplValidation() {
-        return switch (this) {
-            case CLOSEST_APPROACH, FARTHEST_APPROACH, OPPOSITION, CONJUNCTION, GREATEST_ELONGATION, PERIHELION -> true;
-            default -> false;
-        };
+        return true;
     }
 }
