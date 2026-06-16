@@ -77,6 +77,7 @@ public class JplValidationService {
             case OPPOSITION, CONJUNCTION -> validateAngularEvent(event);
             case GREATEST_ELONGATION -> validateElongation(event);
             case PERIHELION -> validatePerihelion(event);
+            case BRIGHTEST_APPROACH -> validateBrightestApproach(event);
             default -> event;
         };
     }
@@ -158,6 +159,79 @@ public class JplValidationService {
             deltaKm,
             summary
         );
+    }
+
+    private CatalogEvent validateBrightestApproach(CatalogEvent event) {
+        if (event.computedMagnitude() == null) {
+            throw new JplHorizonsException("Brightest approach event did not include computed magnitude");
+        }
+
+        BodyId target = event.bodyA() == BodyId.EARTH ? event.bodyB() : event.bodyA();
+
+        MagnitudeSample coarseBest = findJplBrightestApproach(
+            target,
+            event.computedTimeUtc().minus(Duration.ofDays(2)),
+            event.computedTimeUtc().plus(Duration.ofDays(2)),
+            Duration.ofHours(6)
+        );
+        MagnitudeSample refinedBest = findJplBrightestApproach(
+            target,
+            coarseBest.time().minus(Duration.ofHours(9)),
+            coarseBest.time().plus(Duration.ofHours(9)),
+            Duration.ofHours(1)
+        );
+
+        String summary = "JPL corrected brightest approach %s at mag %.4f; computed %s at mag %.4f".formatted(
+            refinedBest.time(),
+            refinedBest.magnitude(),
+            event.computedTimeUtc(),
+            event.computedMagnitude()
+        );
+
+        return catalogService.storeValidation(
+            event,
+            refinedBest.time(),
+            null,
+            null,
+            refinedBest.magnitude(),
+            null,
+            summary
+        );
+    }
+
+    private MagnitudeSample findJplBrightestApproach(BodyId target, Instant from, Instant to, Duration step) {
+        String horizonsStep = horizonsStep(step);
+        List<JplVector> targetSamples = horizonsClient.vectors(target, from, to, horizonsStep);
+        Map<Instant, Vector3Au> earthSamples = horizonsClient.vectors(BodyId.EARTH, from, to, horizonsStep).stream()
+            .collect(Collectors.toMap(JplVector::requestedTimeUtc, JplVector::positionAu, (first, second) -> first));
+
+        MagnitudeSample best = null;
+        for (JplVector targetSample : targetSamples) {
+            Vector3Au earth = earthSamples.get(targetSample.requestedTimeUtc());
+            if (earth == null) {
+                continue;
+            }
+
+            Vector3Au planet = targetSample.positionAu();
+            double helioDist = planet.magnitude();
+            double geoDist = planet.distanceTo(earth);
+
+            Vector3Au planetToSun = planet.negate();
+            Vector3Au planetToEarth = earth.minus(planet);
+            double alphaDeg = planetToSun.angleBetweenDeg(planetToEarth);
+
+            double mag = catalogService.computeVisualMagnitude(target, helioDist, geoDist, alphaDeg);
+
+            if (best == null || mag < best.magnitude()) {
+                best = new MagnitudeSample(targetSample.requestedTimeUtc(), mag);
+            }
+        }
+
+        if (best == null) {
+            throw new JplHorizonsException("JPL Horizons returned no overlapping samples for the brightest approach window");
+        }
+
+        return new MagnitudeSample(best.time().truncatedTo(ChronoUnit.SECONDS), best.magnitude());
     }
 
     private CatalogEvent validateElongation(CatalogEvent event) {
@@ -313,5 +387,8 @@ public class JplValidationService {
     }
 
     private record DistanceSample(Instant time, double distanceAu) {
+    }
+
+    private record MagnitudeSample(Instant time, double magnitude) {
     }
 }
