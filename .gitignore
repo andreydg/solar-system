@@ -3,6 +3,9 @@ dist
 .vite
 backend/target
 backend/data
+# Built frontend is generated into the backend at build time (see Dockerfile / CI);
+# never commit it — a stale committed copy previously shipped a broken favicon.
+backend/src/main/resources/static/
 data/trajectories/*.json
 .DS_Store
 *.local

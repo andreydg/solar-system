@@ -9,11 +9,22 @@ jobs:
   backend:
     name: Backend (Maven)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      # The built frontend is no longer committed; generate it into the backend's
+      # static resources (mirrors the Dockerfile) so static-serving tests have it.
+      - name: Build frontend into backend static
+        run: |
+          npm ci
+          npm run build
+          rm -rf backend/src/main/resources/static
+          mkdir -p backend/src/main/resources/static
+          cp -R dist/. backend/src/main/resources/static/
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -21,6 +32,7 @@ jobs:
           java-version: "21"
           cache: maven
       - name: Run tests
+        working-directory: backend
         # Live-network integration tests are excluded by default (see pom.xml).
         run: mvn -B test
 
