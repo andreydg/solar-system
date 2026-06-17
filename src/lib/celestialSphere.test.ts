@@ -4,6 +4,7 @@ import {
   equatorialToScene,
   equatorialToSceneDirection,
   galacticToSceneDirection,
+  sceneDirectionToGalactic,
   SKY_RADIUS,
 } from "./celestialSphere";
 
@@ -44,6 +45,14 @@ describe("celestialSphere coordinates", () => {
     const { raDeg, decDeg } = sceneDirToRaDec(galacticToSceneDirection(0, 0));
     expect(raDeg).toBeCloseTo(266.4, 0);
     expect(decDeg).toBeCloseTo(-28.94, 1);
+  });
+
+  it("inverts the galactic transform (scene direction → galactic round-trip)", () => {
+    for (const [l, b] of [[0, 0], [90, 10], [200, -25], [330, 40]] as const) {
+      const back = sceneDirectionToGalactic(galacticToSceneDirection(l, b));
+      expect(back.lDeg).toBeCloseTo(l, 2);
+      expect(back.bDeg).toBeCloseTo(b, 2);
+    }
   });
 
   it("scales directions onto the sky sphere radius", () => {

@@ -50,6 +50,30 @@ export function galacticToSceneDirection(lDeg: number, bDeg: number): Vec3 {
   return [ex, ez, -ey];
 }
 
+// Row-major matrix mapping a scene-space direction back to galactic coordinates
+// (inverse of the chain above). Used by the Milky Way glow shader to know, per fragment,
+// how close a direction is to the galactic plane / centre. Derived as M(equ->gal) · P,
+// where P maps scene [x,y,z] back to equatorial [x,-z,y].
+export const SCENE_TO_GALACTIC_ROWMAJOR: readonly number[] = [
+  -0.0548755604, -0.4838350155, 0.8734370902,
+  0.4941094279, 0.7469822445, 0.44482963,
+  -0.867_666_149, 0.4559837762, 0.1980763734,
+];
+
+/** Scene direction → galactic (l degrees, b degrees). */
+export function sceneDirectionToGalactic(dir: Vec3): { lDeg: number; bDeg: number } {
+  const m = SCENE_TO_GALACTIC_ROWMAJOR;
+  const gx = m[0] * dir[0] + m[1] * dir[1] + m[2] * dir[2];
+  const gy = m[3] * dir[0] + m[4] * dir[1] + m[5] * dir[2];
+  const gz = m[6] * dir[0] + m[7] * dir[1] + m[8] * dir[2];
+  const bDeg = (Math.asin(Math.max(-1, Math.min(1, gz))) * 180) / Math.PI;
+  let lDeg = (Math.atan2(gy, gx) * 180) / Math.PI;
+  if (lDeg < 0) {
+    lDeg += 360;
+  }
+  return { lDeg, bDeg };
+}
+
 export type BrightStar = {
   name: string;
   raHours: number;
@@ -80,6 +104,55 @@ export const BRIGHT_STARS: BrightStar[] = [
   { name: "Deneb", raHours: 20.6905, decDeg: 45.28, mag: 1.25, color: "#dce7ff" },
   { name: "Regulus", raHours: 10.1395, decDeg: 11.967, mag: 1.4, color: "#d3e0ff" },
   { name: "Polaris", raHours: 2.5302, decDeg: 89.264, mag: 1.98, color: "#fff2d4" },
+  // Orion (belt + shoulders/feet)
+  { name: "Bellatrix", raHours: 5.4188, decDeg: 6.35, mag: 1.64, color: "#cdd9ff" },
+  { name: "Alnilam", raHours: 5.6036, decDeg: -1.202, mag: 1.69, color: "#cdd9ff" },
+  { name: "Alnitak", raHours: 5.6793, decDeg: -1.943, mag: 1.74, color: "#cdd9ff" },
+  { name: "Mintaka", raHours: 5.5334, decDeg: -0.299, mag: 2.25, color: "#cdd9ff" },
+  { name: "Saiph", raHours: 5.7959, decDeg: -9.67, mag: 2.07, color: "#cdd9ff" },
+  // Ursa Major — the Big Dipper
+  { name: "Dubhe", raHours: 11.0621, decDeg: 61.751, mag: 1.79, color: "#ffcf9b" },
+  { name: "Merak", raHours: 11.0307, decDeg: 56.382, mag: 2.37, color: "#eef2ff" },
+  { name: "Phecda", raHours: 11.8972, decDeg: 53.695, mag: 2.44, color: "#eef2ff" },
+  { name: "Megrez", raHours: 12.257, decDeg: 57.033, mag: 3.31, color: "#eef2ff" },
+  { name: "Alioth", raHours: 12.9004, decDeg: 55.96, mag: 1.77, color: "#eef2ff" },
+  { name: "Mizar", raHours: 13.3987, decDeg: 54.925, mag: 2.04, color: "#eef2ff" },
+  { name: "Alkaid", raHours: 13.7923, decDeg: 49.313, mag: 1.86, color: "#cdd9ff" },
+  { name: "Kochab", raHours: 14.8451, decDeg: 74.156, mag: 2.08, color: "#ffcf9b" },
+  // Cassiopeia — the W
+  { name: "Schedar", raHours: 0.6751, decDeg: 56.537, mag: 2.24, color: "#ffcf9b" },
+  { name: "Caph", raHours: 0.153, decDeg: 59.15, mag: 2.28, color: "#fff3d6" },
+  { name: "Gamma Cas", raHours: 0.9451, decDeg: 60.717, mag: 2.47, color: "#cdd9ff" },
+  { name: "Ruchbah", raHours: 1.4304, decDeg: 60.235, mag: 2.68, color: "#f5f6ff" },
+  { name: "Segin", raHours: 1.9067, decDeg: 63.67, mag: 3.35, color: "#cdd9ff" },
+  // Crux — the Southern Cross
+  { name: "Acrux", raHours: 12.4433, decDeg: -63.099, mag: 0.77, color: "#cdd9ff" },
+  { name: "Mimosa", raHours: 12.7953, decDeg: -59.689, mag: 1.25, color: "#cdd9ff" },
+  { name: "Gacrux", raHours: 12.5194, decDeg: -57.113, mag: 1.63, color: "#ffb56b" },
+  { name: "Imai", raHours: 12.2525, decDeg: -58.749, mag: 2.79, color: "#cdd9ff" },
+  // Cygnus — the Northern Cross
+  { name: "Sadr", raHours: 20.3705, decDeg: 40.257, mag: 2.23, color: "#fff3d6" },
+  { name: "Gienah", raHours: 20.7704, decDeg: 33.97, mag: 2.48, color: "#ffcf9b" },
+  { name: "Delta Cygni", raHours: 19.7495, decDeg: 45.131, mag: 2.87, color: "#cdd9ff" },
+  { name: "Albireo", raHours: 19.5121, decDeg: 27.96, mag: 3.18, color: "#ffcf9b" },
+  // Scorpius
+  { name: "Shaula", raHours: 17.5601, decDeg: -37.104, mag: 1.62, color: "#cdd9ff" },
+  { name: "Sargas", raHours: 17.6219, decDeg: -42.998, mag: 1.86, color: "#fff3d6" },
+  { name: "Dschubba", raHours: 16.0056, decDeg: -22.622, mag: 2.29, color: "#cdd9ff" },
+  // Leo
+  { name: "Denebola", raHours: 11.8177, decDeg: 14.572, mag: 2.11, color: "#eef2ff" },
+  { name: "Algieba", raHours: 10.3328, decDeg: 19.841, mag: 2.28, color: "#ffcf9b" },
+  // Gemini / Centaurus / Carina / Pegasus / Andromeda anchors
+  { name: "Castor", raHours: 7.5766, decDeg: 31.888, mag: 1.58, color: "#eef2ff" },
+  { name: "Menkent", raHours: 14.1113, decDeg: -36.37, mag: 2.06, color: "#ffcf9b" },
+  { name: "Miaplacidus", raHours: 9.22, decDeg: -69.717, mag: 1.67, color: "#d6e6ff" },
+  { name: "Avior", raHours: 8.3752, decDeg: -59.51, mag: 1.86, color: "#ffcf9b" },
+  { name: "Alpheratz", raHours: 0.1398, decDeg: 29.09, mag: 2.06, color: "#eef2ff" },
+  { name: "Scheat", raHours: 23.0629, decDeg: 28.083, mag: 2.42, color: "#ffb56b" },
+  { name: "Markab", raHours: 23.0794, decDeg: 15.205, mag: 2.49, color: "#dce7ff" },
+  { name: "Mirach", raHours: 1.1622, decDeg: 35.621, mag: 2.05, color: "#ffb56b" },
+  { name: "Hamal", raHours: 2.1191, decDeg: 23.462, mag: 2.0, color: "#ffcf9b" },
+  { name: "Algol", raHours: 3.1361, decDeg: 40.956, mag: 2.12, color: "#dce7ff" },
 ];
 
 export type DeepSkyObject = {
@@ -93,10 +166,15 @@ export type DeepSkyObject = {
 
 // Naked-eye fuzzy objects visible from a dark site (or from space).
 export const DEEP_SKY: DeepSkyObject[] = [
-  { name: "Andromeda (M31)", raHours: 0.7123, decDeg: 41.269, angularSizeDeg: 3.0, color: "#cdd6e8", points: 220 },
-  { name: "Large Magellanic Cloud", raHours: 5.3933, decDeg: -69.756, angularSizeDeg: 5.5, color: "#d7d2c4", points: 320 },
-  { name: "Small Magellanic Cloud", raHours: 0.8767, decDeg: -72.8, angularSizeDeg: 3.0, color: "#d7d2c4", points: 160 },
+  { name: "Andromeda (M31)", raHours: 0.7123, decDeg: 41.269, angularSizeDeg: 3.0, color: "#cdd6e8", points: 240 },
+  { name: "Large Magellanic Cloud", raHours: 5.3933, decDeg: -69.756, angularSizeDeg: 5.5, color: "#d7d2c4", points: 360 },
+  { name: "Small Magellanic Cloud", raHours: 0.8767, decDeg: -72.8, angularSizeDeg: 3.0, color: "#d7d2c4", points: 180 },
   { name: "Pleiades (M45)", raHours: 3.79, decDeg: 24.117, angularSizeDeg: 1.2, color: "#cfe0ff", points: 70 },
+  { name: "Orion Nebula (M42)", raHours: 5.5882, decDeg: -5.391, angularSizeDeg: 0.7, color: "#e6c6d4", points: 120 },
+  { name: "Eta Carinae Nebula", raHours: 10.7522, decDeg: -59.866, angularSizeDeg: 1.3, color: "#ffd0c2", points: 130 },
+  { name: "Omega Centauri", raHours: 13.4463, decDeg: -47.479, angularSizeDeg: 0.4, color: "#fff1d6", points: 70 },
+  { name: "47 Tucanae", raHours: 0.4014, decDeg: -72.081, angularSizeDeg: 0.35, color: "#fff1d6", points: 55 },
+  { name: "Beehive (M44)", raHours: 8.6701, decDeg: 19.667, angularSizeDeg: 1.0, color: "#eef2ff", points: 55 },
 ];
 
 export type StarField = {
@@ -194,7 +272,7 @@ function milkyWayPoints(count = 2600): RawPoint[] {
   return points;
 }
 
-function ambientFieldPoints(count = 1100): RawPoint[] {
+function ambientFieldPoints(count = 3200): RawPoint[] {
   const rng = mulberry32(0x1234abcd);
   const points: RawPoint[] = [];
   for (let i = 0; i < count; i += 1) {
