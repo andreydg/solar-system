@@ -9,6 +9,7 @@ import dev.andreydg.solarsystem.catalog.EventCatalogService;
 import dev.andreydg.solarsystem.catalog.EventType;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -86,7 +87,35 @@ class EventCatalogServiceTests {
 
     @Test
     void listsOnlyValidatedEvents() {
-        assertThat(service.listValidatedEvents()).isEmpty();
+        assertThat(service.listValidatedEvents(Optional.empty(), Optional.empty(), Optional.empty())).isEmpty();
+    }
+
+    @Test
+    void filtersValidatedEventsByCriteria() {
+        Instant from = Instant.parse("2026-01-01T00:00:00Z");
+        Instant to = Instant.parse("2028-12-31T00:00:00Z");
+
+        // Generate (PENDING) then mark one validated so there is something to query.
+        var generated = service.generate(EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS, from, to);
+        CatalogEvent pending = generated.getFirst();
+        service.storeValidation(pending, pending.computedTimeUtc(), pending.computedDistanceAu(), null, null, 0.0, "test");
+
+        var all = service.listValidatedEvents(Optional.empty(), Optional.empty(), Optional.empty());
+        assertThat(all).hasSize(1);
+
+        // Type filter.
+        assertThat(service.listValidatedEvents(Optional.of(EventType.CLOSEST_APPROACH), Optional.empty(), Optional.empty()))
+            .hasSize(1);
+        assertThat(service.listValidatedEvents(Optional.of(EventType.OPPOSITION), Optional.empty(), Optional.empty()))
+            .isEmpty();
+
+        // Body filter matches either side of the pair.
+        assertThat(service.listValidatedEvents(Optional.empty(), Optional.of(BodyId.MARS), Optional.empty()))
+            .hasSize(1);
+        assertThat(service.listValidatedEvents(Optional.empty(), Optional.of(BodyId.EARTH), Optional.of(BodyId.MARS)))
+            .hasSize(1);
+        assertThat(service.listValidatedEvents(Optional.empty(), Optional.of(BodyId.JUPITER), Optional.empty()))
+            .isEmpty();
     }
 
     @Test

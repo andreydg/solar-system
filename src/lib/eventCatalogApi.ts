@@ -63,8 +63,26 @@ export async function getCatalogOptions(): Promise<CatalogOptions> {
   return (await response.json()) as CatalogOptions;
 }
 
-export async function getValidatedEvents(): Promise<CatalogEventResult[]> {
-  const response = await fetch("/api/events/validated");
+export type ValidatedEventQuery = {
+  type?: CatalogEventType;
+  bodyA?: BodyId;
+  bodyB?: BodyId;
+};
+
+export async function getValidatedEvents(query: ValidatedEventQuery = {}): Promise<CatalogEventResult[]> {
+  const params = new URLSearchParams();
+  if (query.type) {
+    params.set("type", query.type);
+  }
+  if (query.bodyA) {
+    params.set("bodyA", query.bodyA);
+  }
+  if (query.bodyB) {
+    params.set("bodyB", query.bodyB);
+  }
+
+  const queryString = params.toString();
+  const response = await fetch(`/api/events/validated${queryString ? `?${queryString}` : ""}`);
   await assertOk(response);
   const events = (await response.json()) as ApiEvent[];
   return events.map(toCatalogEventResult);

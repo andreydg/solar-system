@@ -18,36 +18,12 @@ const ALL_FILTER = "all";
 export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverlayProps) {
   const [events, setEvents] = useState<CatalogEventResult[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [hasQueried, setHasQueried] = useState(false);
   const [filterType, setFilterType] = useState<CatalogEventType | typeof ALL_FILTER>(ALL_FILTER);
   const [filterBodyA, setFilterBodyA] = useState<BodyId | typeof ALL_FILTER>(ALL_FILTER);
   const [filterBodyB, setFilterBodyB] = useState<BodyId | typeof ALL_FILTER>(ALL_FILTER);
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void getValidatedEvents()
-      .then((results) => {
-        if (!cancelled) {
-          setEvents(results);
-        }
-      })
-      .catch((fetchError: unknown) => {
-        if (!cancelled) {
-          setError(fetchError instanceof Error ? fetchError.message : "Failed to load validated events.");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -60,28 +36,33 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const filteredEvents = useMemo(() => {
-    const filtered = events.filter((event) => {
-      if (filterType !== ALL_FILTER && event.type !== filterType) {
-        return false;
-      }
+  const runQuery = () => {
+    setLoading(true);
+    setError(null);
 
-      if (filterBodyA !== ALL_FILTER && event.bodyA !== filterBodyA && event.bodyB !== filterBodyA) {
-        return false;
-      }
+    void getValidatedEvents({
+      type: filterType === ALL_FILTER ? undefined : filterType,
+      bodyA: filterBodyA === ALL_FILTER ? undefined : filterBodyA,
+      bodyB: filterBodyB === ALL_FILTER ? undefined : filterBodyB,
+    })
+      .then((results) => {
+        setEvents(results);
+        setHasQueried(true);
+      })
+      .catch((fetchError: unknown) => {
+        setError(fetchError instanceof Error ? fetchError.message : "Failed to query validated events.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  };
 
-      if (filterBodyB !== ALL_FILTER && event.bodyA !== filterBodyB && event.bodyB !== filterBodyB) {
-        return false;
-      }
-
-      return true;
-    });
-
-    return filtered.sort((left, right) => {
+  const sortedEvents = useMemo(() => {
+    return [...events].sort((left, right) => {
       const difference = left.time.getTime() - right.time.getTime();
       return sortOrder === "asc" ? difference : -difference;
     });
-  }, [events, filterBodyA, filterBodyB, filterType, sortOrder]);
+  }, [events, sortOrder]);
 
   return (
     <div className="validated-events-backdrop" onClick={onClose}>
@@ -93,7 +74,7 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
         onClick={(event) => event.stopPropagation()}
       >
         <header className="validated-events-header">
-          <h3 id="validated-events-title">All validated events</h3>
+          <h3 id="validated-events-title">Validated events</h3>
           <button type="button" className="overlay-close-button" onClick={onClose}>
             Close
           </button>
@@ -157,20 +138,28 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
               <option value="desc">Latest first</option>
             </select>
           </label>
+
+          <button
+            type="button"
+            className="next-event-button validated-events-query"
+            disabled={loading}
+            onClick={runQuery}
+          >
+            {loading ? "Querying..." : "Query"}
+          </button>
         </div>
 
         <div className="validated-events-scroll">
-          {loading ? <p className="status-text">Loading validated events...</p> : null}
           {error ? <p className="status-text">{error}</p> : null}
-          {!loading && !error && events.length === 0 ? (
-            <p className="status-text">No JPL-validated events cached yet.</p>
+          {!loading && !error && !hasQueried ? (
+            <p className="status-text">Choose criteria and run a query to list validated events.</p>
           ) : null}
-          {!loading && !error && events.length > 0 && filteredEvents.length === 0 ? (
-            <p className="status-text">No validated events match these filters.</p>
+          {!loading && !error && hasQueried && sortedEvents.length === 0 ? (
+            <p className="status-text">No validated events match these criteria.</p>
           ) : null}
 
-          {!loading && !error
-            ? filteredEvents.map((event) => (
+          {!error
+            ? sortedEvents.map((event) => (
                 <article className="validated-event-row" key={event.id}>
                   <strong>{formatEventTitle(event)}</strong>
                   <span>{formatDate(event.time)} UTC</span>

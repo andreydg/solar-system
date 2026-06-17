@@ -133,11 +133,22 @@ public class EventCatalogService {
             .toList();
     }
 
-    public List<CatalogEvent> listValidatedEvents() {
+    public List<CatalogEvent> listValidatedEvents(
+        Optional<EventType> type,
+        Optional<BodyId> bodyA,
+        Optional<BodyId> bodyB
+    ) {
         return repository.findAllValidated().stream()
             .filter(this::isStoredEventValid)
+            .filter(event -> type.isEmpty() || event.type() == type.get())
+            .filter(event -> bodyA.isEmpty() || involvesBody(event, bodyA.get()))
+            .filter(event -> bodyB.isEmpty() || involvesBody(event, bodyB.get()))
             .sorted(Comparator.comparing(CatalogEvent::displayTimeUtc))
             .toList();
+    }
+
+    private static boolean involvesBody(CatalogEvent event, BodyId body) {
+        return event.bodyA() == body || event.bodyB() == body;
     }
 
     public CatalogEvent storeValidation(

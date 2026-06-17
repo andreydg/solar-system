@@ -6,6 +6,7 @@ import dev.andreydg.solarsystem.catalog.EventType;
 import jakarta.validation.Valid;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -55,8 +56,16 @@ public class EventCatalogController {
     }
 
     @GetMapping("/api/events/validated")
-    public List<EventDto> listValidatedEvents() {
-        return service.listValidatedEvents()
+    public List<EventDto> listValidatedEvents(
+        @RequestParam(required = false) String type,
+        @RequestParam(required = false) String bodyA,
+        @RequestParam(required = false) String bodyB
+    ) {
+        return service.listValidatedEvents(
+                Optional.ofNullable(type).filter(value -> !value.isBlank()).map(EventType::fromApiValue),
+                Optional.ofNullable(bodyA).filter(value -> !value.isBlank()).map(BodyId::fromApiValue),
+                Optional.ofNullable(bodyB).filter(value -> !value.isBlank()).map(BodyId::fromApiValue)
+            )
             .stream()
             .map(EventDto::from)
             .toList();
