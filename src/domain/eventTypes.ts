@@ -191,12 +191,3 @@ export function formatEventPairingNote(type: CatalogEventType) {
       return "Earth observer + Ceres, Vesta, Encke, or Halley";
   }
 }
-
-export const JPL_VALIDATED_EVENT_TYPES = new Set<CatalogEventType>([
-  "closestApproach",
-  "farthestApproach",
-  "opposition",
-  "conjunction",
-  "greatestElongation",
-  "perihelion",
-]);

@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import {
   EVENT_TYPES,
-  JPL_VALIDATED_EVENT_TYPES,
   formatEventPairingNote,
   type CatalogEventType,
 } from "../domain/eventTypes";
@@ -40,8 +39,8 @@ export default function EventTypesOverlay({ selectedType, onClose }: EventTypesO
         </header>
 
         <p className="event-types-intro">
-          Choose an event type in the Events panel, then search forward up to 1,000 years for the
-          next occurrence.
+          Choose an event type in the Events panel, then step through occurrences up to 1,000 years
+          out. Every event's time and geometry is refined and validated against NASA JPL Horizons.
         </p>
 
         <div className="validated-events-scroll">
@@ -53,9 +52,6 @@ export default function EventTypesOverlay({ selectedType, onClose }: EventTypesO
               <strong>{type.label}</strong>
               <small>{formatEventPairingNote(type.id)}</small>
               <span>{type.description}</span>
-              {JPL_VALIDATED_EVENT_TYPES.has(type.id) ? (
-                <small className="event-type-badge">JPL validated</small>
-              ) : null}
             </article>
           ))}
         </div>
