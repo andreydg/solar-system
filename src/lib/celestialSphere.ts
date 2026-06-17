@@ -162,19 +162,21 @@ export type DeepSkyObject = {
   angularSizeDeg: number;
   color: string;
   points: number;
+  brightness: number;
 };
 
-// Naked-eye fuzzy objects visible from a dark site (or from space).
+// Naked-eye fuzzy objects visible from a dark site (or from space). `brightness` is a relative
+// glow multiplier so genuinely prominent objects (the Magellanic Clouds, M31) read clearly.
 export const DEEP_SKY: DeepSkyObject[] = [
-  { name: "Andromeda (M31)", raHours: 0.7123, decDeg: 41.269, angularSizeDeg: 3.0, color: "#cdd6e8", points: 240 },
-  { name: "Large Magellanic Cloud", raHours: 5.3933, decDeg: -69.756, angularSizeDeg: 5.5, color: "#d7d2c4", points: 360 },
-  { name: "Small Magellanic Cloud", raHours: 0.8767, decDeg: -72.8, angularSizeDeg: 3.0, color: "#d7d2c4", points: 180 },
-  { name: "Pleiades (M45)", raHours: 3.79, decDeg: 24.117, angularSizeDeg: 1.2, color: "#cfe0ff", points: 70 },
-  { name: "Orion Nebula (M42)", raHours: 5.5882, decDeg: -5.391, angularSizeDeg: 0.7, color: "#e6c6d4", points: 120 },
-  { name: "Eta Carinae Nebula", raHours: 10.7522, decDeg: -59.866, angularSizeDeg: 1.3, color: "#ffd0c2", points: 130 },
-  { name: "Omega Centauri", raHours: 13.4463, decDeg: -47.479, angularSizeDeg: 0.4, color: "#fff1d6", points: 70 },
-  { name: "47 Tucanae", raHours: 0.4014, decDeg: -72.081, angularSizeDeg: 0.35, color: "#fff1d6", points: 55 },
-  { name: "Beehive (M44)", raHours: 8.6701, decDeg: 19.667, angularSizeDeg: 1.0, color: "#eef2ff", points: 55 },
+  { name: "Andromeda (M31)", raHours: 0.7123, decDeg: 41.269, angularSizeDeg: 3.0, color: "#cdd6e8", points: 260, brightness: 1.7 },
+  { name: "Large Magellanic Cloud", raHours: 5.3933, decDeg: -69.756, angularSizeDeg: 5.5, color: "#dcd6c6", points: 420, brightness: 2.0 },
+  { name: "Small Magellanic Cloud", raHours: 0.8767, decDeg: -72.8, angularSizeDeg: 3.0, color: "#dcd6c6", points: 220, brightness: 1.8 },
+  { name: "Pleiades (M45)", raHours: 3.79, decDeg: 24.117, angularSizeDeg: 1.2, color: "#cfe0ff", points: 80, brightness: 1.3 },
+  { name: "Orion Nebula (M42)", raHours: 5.5882, decDeg: -5.391, angularSizeDeg: 0.7, color: "#e6c6d4", points: 130, brightness: 1.6 },
+  { name: "Eta Carinae Nebula", raHours: 10.7522, decDeg: -59.866, angularSizeDeg: 1.3, color: "#ffd0c2", points: 150, brightness: 1.5 },
+  { name: "Omega Centauri", raHours: 13.4463, decDeg: -47.479, angularSizeDeg: 0.4, color: "#fff1d6", points: 75, brightness: 1.4 },
+  { name: "47 Tucanae", raHours: 0.4014, decDeg: -72.081, angularSizeDeg: 0.35, color: "#fff1d6", points: 60, brightness: 1.3 },
+  { name: "Beehive (M44)", raHours: 8.6701, decDeg: 19.667, angularSizeDeg: 1.0, color: "#eef2ff", points: 60, brightness: 1.2 },
 ];
 
 export type StarField = {
@@ -312,8 +314,8 @@ function deepSkyPoints(): RawPoint[] {
       const falloff = Math.exp(-(du * du + dv * dv) / (2 * spread * spread));
       points.push({
         dir,
-        color: scale(base, 0.22 + 0.4 * falloff),
-        size: 1 + rng() * 1.4,
+        color: scale(base, (0.3 + 0.55 * falloff) * object.brightness),
+        size: 1.2 + rng() * 1.6,
       });
     }
   }

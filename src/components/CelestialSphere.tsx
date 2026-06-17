@@ -130,7 +130,7 @@ export default function CelestialSphere() {
     return new THREE.ShaderMaterial({
       uniforms: {
         uSceneToGalactic: { value: matrix },
-        uIntensity: { value: 0.55 },
+        uIntensity: { value: 0.44 },
       },
       vertexShader: milkyWayVertexShader,
       fragmentShader: milkyWayFragmentShader,
