@@ -248,7 +248,7 @@ function Planet({ highlighted, position }: { highlighted: boolean; position: Bod
   const body = BODY_BY_ID[position.body];
   const scenePosition = toScenePoint(position.positionAu);
   const visualRadius = getVisualRadius(body.radiusKm, highlighted, false);
-  const textureUrl = PLANET_TEXTURES[position.body] || "/textures/moon.gif";
+  const textureUrl = PLANET_TEXTURES[position.body] || "/textures/moon.jpg";
   const texture = useTexture(textureUrl);
 
   return (
