@@ -272,7 +272,7 @@ export default function ControlPanel({
             className="text-link-button"
             onClick={() => setShowValidatedEvents(true)}
           >
-            All validated events
+            Validated events
           </button>
         </div>
       </section>

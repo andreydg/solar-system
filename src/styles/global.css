@@ -224,6 +224,11 @@ input[type="range"] {
   font-size: 0.84rem;
 }
 
+.validated-events-query {
+  grid-column: 1 / -1;
+  margin-top: 0.25rem;
+}
+
 .validated-events-scroll {
   display: grid;
   gap: 0.55rem;
