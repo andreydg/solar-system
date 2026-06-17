@@ -1,6 +1,6 @@
 import { Canvas, useThree } from "@react-three/fiber";
-import { Html, Line, OrbitControls } from "@react-three/drei";
-import { useEffect, useMemo, useRef } from "react";
+import { Html, Line, OrbitControls, useTexture } from "@react-three/drei";
+import { useEffect, useMemo, useRef, Suspense } from "react";
 import * as THREE from "three";
 import { BODIES, BODY_BY_ID, type BodyId, type BodyPosition, type Vec3, distanceAu, isComet, isSmallBody } from "../domain/solarSystem";
 import { sampleTrajectory } from "../lib/ephemeris";
@@ -12,6 +12,17 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 const AU_TO_SCENE_UNITS = 3.2;
 const ORBIT_SAMPLE_COUNT = 192;
 const TRAIL_EPOCH = new Date("2026-01-01T00:00:00Z");
+
+const PLANET_TEXTURES: Record<string, string> = {
+  mercury: "/textures/mercurymap.jpg",
+  venus: "/textures/venusmap.jpg",
+  earth: "/textures/earthmap1k.jpg",
+  mars: "/textures/marsmap1k.jpg",
+  jupiter: "/textures/jupitermap.jpg",
+  saturn: "/textures/saturnmap.jpg",
+  uranus: "/textures/uranusmap.jpg",
+  neptune: "/textures/neptunemap.jpg",
+};
 
 type SolarSystemSceneProps = {
   currentTime: Date;
@@ -37,27 +48,29 @@ export default function SolarSystemScene({
       <pointLight color="#fff2c0" intensity={900} position={[0, 0, 0]} />
       <CelestialSphere />
 
-      <Sun />
-      <OrbitTrails
-        smallBodyTrajectories={smallBodyTrajectories}
-        visibleBodies={visibleBodies}
-      />
-      <EventPairLine highlightedBodies={highlightedBodies} positions={positions} />
-      {positions.map((position) =>
-        isComet(position.body) ? (
-          <Comet
-            highlighted={highlightedSet.has(position.body)}
-            key={position.body}
-            position={position}
-          />
-        ) : (
-          <Planet
-            highlighted={highlightedSet.has(position.body)}
-            key={position.body}
-            position={position}
-          />
-        ),
-      )}
+      <Suspense fallback={null}>
+        <Sun />
+        <OrbitTrails
+          smallBodyTrajectories={smallBodyTrajectories}
+          visibleBodies={visibleBodies}
+        />
+        <EventPairLine highlightedBodies={highlightedBodies} positions={positions} />
+        {positions.map((position) =>
+          isComet(position.body) ? (
+            <Comet
+              highlighted={highlightedSet.has(position.body)}
+              key={position.body}
+              position={position}
+            />
+          ) : (
+            <Planet
+              highlighted={highlightedSet.has(position.body)}
+              key={position.body}
+              position={position}
+            />
+          ),
+        )}
+      </Suspense>
 
       <Html position={[-18, 14, -18]} transform>
         <div className="scene-date">{currentTime.toISOString().slice(0, 10)}</div>
@@ -70,10 +83,14 @@ export default function SolarSystemScene({
 }
 
 function Sun() {
+  const texture = useTexture("/textures/sunmap.jpg");
   return (
     <mesh>
-      <sphereGeometry args={[0.72, 48, 48]} />
-      <meshBasicMaterial color="#ffd166" />
+      <sphereGeometry args={[0.72, 64, 64]} />
+      <meshBasicMaterial 
+        map={texture} 
+        color="#ffffff" 
+      />
       <Html center distanceFactor={12} position={[0, 1.15, 0]}>
         <span className="planet-label">Sun</span>
       </Html>
@@ -231,6 +248,8 @@ function Planet({ highlighted, position }: { highlighted: boolean; position: Bod
   const body = BODY_BY_ID[position.body];
   const scenePosition = toScenePoint(position.positionAu);
   const visualRadius = getVisualRadius(body.radiusKm, highlighted, false);
+  const textureUrl = PLANET_TEXTURES[position.body] || "/textures/moon.gif";
+  const texture = useTexture(textureUrl);
 
   return (
     <group position={scenePosition}>
@@ -249,9 +268,9 @@ function Planet({ highlighted, position }: { highlighted: boolean; position: Bod
       <mesh>
         <sphereGeometry args={[visualRadius, 32, 32]} />
         <meshStandardMaterial
-          color={body.color}
+          map={texture}
           emissive={highlighted ? body.color : "#000000"}
-          emissiveIntensity={highlighted ? 0.45 : 0}
+          emissiveIntensity={highlighted ? 0.35 : 0}
           roughness={0.8}
         />
       </mesh>
