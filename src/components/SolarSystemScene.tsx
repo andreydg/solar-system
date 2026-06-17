@@ -1,11 +1,12 @@
 import { Canvas, useThree } from "@react-three/fiber";
-import { Html, Line, OrbitControls, Stars } from "@react-three/drei";
+import { Html, Line, OrbitControls } from "@react-three/drei";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { BODIES, BODY_BY_ID, type BodyId, type BodyPosition, type Vec3, distanceAu, isComet, isSmallBody } from "../domain/solarSystem";
 import { sampleTrajectory } from "../lib/ephemeris";
 import { chunkScenePoints, buildOrbitTrailSegments, type SmallBodyTrajectory } from "../lib/smallBodyTrajectory";
 import { addDays } from "../lib/timeUtils";
+import CelestialSphere from "./CelestialSphere";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 const AU_TO_SCENE_UNITS = 3.2;
@@ -34,7 +35,7 @@ export default function SolarSystemScene({
       <color attach="background" args={["#050505"]} />
       <ambientLight intensity={0.35} />
       <pointLight color="#fff2c0" intensity={900} position={[0, 0, 0]} />
-      <Stars count={3500} depth={80} factor={4} fade radius={120} speed={0.25} />
+      <CelestialSphere />
 
       <Sun />
       <OrbitTrails
