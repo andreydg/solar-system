@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Vec3 } from "../domain/solarSystem";
 import {
+  buildOrbitTrailSegments,
   chunkScenePoints,
   interpolateTrajectory,
   sortTrajectory,
@@ -100,6 +101,42 @@ describe("smallBodyTrajectory", () => {
       const chunks = chunkScenePoints(points, 4);
       // Chunks overlap by one point so the rendered line has no gaps.
       expect(chunks[0][chunks[0].length - 1]).toEqual(chunks[1][0]);
+    });
+  });
+
+  // Guards the small-body orbit pipeline: given trajectory data, the scene must always be able
+  // to draw an orbit (a regression here is why Halley's orbit could silently disappear).
+  describe("orbit trail rendering pipeline", () => {
+    const denseTrajectory = (samples: number, stepDays: number): SmallBodyTrajectory => {
+      const start = new Date("2020-01-01T00:00:00Z").getTime();
+      return Array.from({ length: samples }, (_, i) => ({
+        time: new Date(start + i * stepDays * 86_400_000),
+        positionAu: vec(Math.cos(i * 0.05), Math.sin(i * 0.05), 0.1 * Math.sin(i * 0.02)),
+      }));
+    };
+
+    it("produces a renderable orbit (>=1 segment, all points, each drawable) for dense data", () => {
+      const segments = buildOrbitTrailSegments(denseTrajectory(400, 5)); // ~5.5 yr, no gaps > 45d
+      expect(segments.length).toBeGreaterThanOrEqual(1);
+      expect(segments.reduce((n, s) => n + s.length, 0)).toBe(400);
+      expect(segments.every((s) => s.length >= 2)).toBe(true);
+    });
+
+    it("chunks a long orbit into stitched, drawable line chunks", () => {
+      const segments = buildOrbitTrailSegments(denseTrajectory(1200, 3));
+      expect(segments).toHaveLength(1);
+      const scenePoints = segments[0].map((p) => [p.x, p.y, p.z] as [number, number, number]);
+      const chunks = chunkScenePoints(scenePoints);
+      expect(chunks.length).toBeGreaterThan(1);
+      expect(chunks.every((c) => c.length >= 2)).toBe(true);
+      for (let i = 1; i < chunks.length; i += 1) {
+        expect(chunks[i][0]).toEqual(chunks[i - 1][chunks[i - 1].length - 1]);
+      }
+    });
+
+    it("yields nothing to render (no crash) when the trajectory is missing or too short", () => {
+      expect(buildOrbitTrailSegments([])).toEqual([]);
+      expect(buildOrbitTrailSegments([{ time: new Date(), positionAu: vec(1, 0, 0) }])).toEqual([]);
     });
   });
 });
