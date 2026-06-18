@@ -10,3 +10,4 @@ data/trajectories/*.json
 .DS_Store
 *.local
 *.tsbuildinfo
+.claude/
