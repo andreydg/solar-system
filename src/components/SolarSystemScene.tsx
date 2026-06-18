@@ -83,7 +83,9 @@ export default function SolarSystemScene({
 }
 
 function Sun() {
-  const texture = useTexture("/textures/sunmap.jpg");
+  const texture = useTexture("/textures/sunmap.jpg", (loaded) => {
+    (loaded as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+  });
   return (
     <mesh>
       <sphereGeometry args={[0.72, 64, 64]} />
@@ -249,7 +251,9 @@ function Planet({ highlighted, position }: { highlighted: boolean; position: Bod
   const scenePosition = toScenePoint(position.positionAu);
   const visualRadius = getVisualRadius(body.radiusKm, highlighted, false);
   const textureUrl = PLANET_TEXTURES[position.body] || "/textures/moon.jpg";
-  const texture = useTexture(textureUrl);
+  const texture = useTexture(textureUrl, (loaded) => {
+    (loaded as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+  });
 
   return (
     <group position={scenePosition}>

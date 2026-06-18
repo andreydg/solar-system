@@ -66,4 +66,36 @@ class SpaForwardingTests {
         assertThat(response.getHeaders().getContentType()).isNotEqualTo(MediaType.TEXT_HTML);
         assertThat(response.getBody()).isNotEmpty();
     }
+
+    @Test
+    void nestedStaticFilesAreServed() {
+        // A real file in a nested directory (e.g. /textures/*.jpg) must be served, not forwarded.
+        ResponseEntity<String> response =
+            client().get().uri("/textures/sample-texture.txt").retrieve().toEntity(String.class);
+        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(response.getBody()).isEqualTo("nested-static-fixture");
+    }
+
+    @Test
+    void missingNestedAssetsAreNotForwardedToTheSpaShell() {
+        // Regression guard for the original bug: a missing file in a nested directory must 404,
+        // not return the SPA shell (the old first-segment regex forwarded these).
+        ResponseEntity<String> response =
+            client().get().uri("/textures/does-not-exist.png").retrieve().toEntity(String.class);
+        assertThat(response.getStatusCode().is2xxSuccessful()).isFalse();
+        if (response.getBody() != null) {
+            assertThat(response.getBody()).doesNotContain("<div id=\"root\">");
+        }
+    }
+
+    @Test
+    void apiPathsAreNotForwardedToTheSpaShell() {
+        // An unmatched /api/** path must not resolve to the SPA shell.
+        ResponseEntity<String> response =
+            client().get().uri("/api/no-such-endpoint").retrieve().toEntity(String.class);
+        assertThat(response.getStatusCode().is2xxSuccessful()).isFalse();
+        if (response.getBody() != null) {
+            assertThat(response.getBody()).doesNotContain("<div id=\"root\">");
+        }
+    }
 }
