@@ -83,7 +83,9 @@ export default function SolarSystemScene({
 }
 
 function Sun() {
-  const texture = useTexture("/textures/sunmap.jpg");
+  const texture = useTexture("/textures/sunmap.jpg", (loaded) => {
+    (loaded as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+  });
   return (
     <mesh>
       <sphereGeometry args={[0.72, 64, 64]} />
@@ -249,7 +251,9 @@ function Planet({ highlighted, position }: { highlighted: boolean; position: Bod
   const scenePosition = toScenePoint(position.positionAu);
   const visualRadius = getVisualRadius(body.radiusKm, highlighted, false);
   const textureUrl = PLANET_TEXTURES[position.body] || "/textures/moon.jpg";
-  const texture = useTexture(textureUrl);
+  const texture = useTexture(textureUrl, (loaded) => {
+    (loaded as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
+  });
 
   return (
     <group position={scenePosition}>
@@ -274,18 +278,87 @@ function Planet({ highlighted, position }: { highlighted: boolean; position: Bod
           roughness={0.8}
         />
       </mesh>
-      {position.body === "saturn" ? (
-        <mesh rotation={[Math.PI / 2.25, 0.35, 0]}>
-          <ringGeometry args={[visualRadius * 1.45, visualRadius * 2.3, 72]} />
-          <meshBasicMaterial color="#d5bd83" opacity={0.42} transparent />
-        </mesh>
-      ) : null}
+      {position.body === "saturn" ? <SaturnRings visualRadius={visualRadius} /> : null}
       <Html center distanceFactor={10} position={[0, visualRadius + 0.38, 0]}>
         <span className={highlighted ? "planet-label planet-label-highlighted" : "planet-label"}>
           {body.name}
         </span>
       </Html>
     </group>
+  );
+}
+
+// Radial brightness/opacity profile of Saturn's rings: faint C ring, bright B ring, the dark
+// Cassini Division, the A ring with the Encke gap, and a soft outer edge.
+function buildSaturnRingTexture(): THREE.CanvasTexture {
+  const width = 1024;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = 8;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    for (let x = 0; x < width; x += 1) {
+      const t = x / (width - 1); // 0 = inner edge, 1 = outer edge
+      let alpha: number;
+      if (t < 0.05) {
+        alpha = 0; // inner clear zone
+      } else if (t < 0.22) {
+        alpha = 0.12 + 0.18 * ((t - 0.05) / 0.17); // C ring (faint)
+      } else if (t < 0.6) {
+        alpha = 0.62 + 0.12 * Math.sin(t * 90); // B ring (bright, banded)
+      } else if (t < 0.66) {
+        alpha = 0.05; // Cassini Division
+      } else if (t < 0.95) {
+        alpha = 0.42 + 0.1 * Math.sin(t * 120); // A ring
+      } else {
+        alpha = Math.max(0, 0.4 * (1 - (t - 0.95) / 0.05)); // outer fade
+      }
+      if (t > 0.9 && t < 0.915) {
+        alpha *= 0.25; // Encke gap
+      }
+      alpha = Math.max(0, Math.min(0.9, alpha));
+
+      const shade = 198 + 26 * Math.sin(t * 60);
+      const r = Math.min(255, Math.round(shade));
+      const g = Math.min(255, Math.round(shade * 0.9));
+      const b = Math.min(255, Math.round(shade * 0.66));
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      ctx.fillRect(x, 0, 1, canvas.height);
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function SaturnRings({ visualRadius }: { visualRadius: number }) {
+  const inner = visualRadius * 1.28;
+  const outer = visualRadius * 2.3;
+
+  const geometry = useMemo(() => {
+    const geo = new THREE.RingGeometry(inner, outer, 128, 1);
+    // Remap UVs so the texture's U axis runs radially (RingGeometry's default UVs are square).
+    const position = geo.attributes.position;
+    const uv = geo.attributes.uv;
+    const vertex = new THREE.Vector3();
+    for (let i = 0; i < position.count; i += 1) {
+      vertex.fromBufferAttribute(position, i);
+      const radius = Math.hypot(vertex.x, vertex.y);
+      uv.setXY(i, (radius - inner) / (outer - inner), 0.5);
+    }
+    uv.needsUpdate = true;
+    return geo;
+  }, [inner, outer]);
+
+  const texture = useMemo(() => buildSaturnRingTexture(), []);
+
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  useEffect(() => () => texture.dispose(), [texture]);
+
+  return (
+    <mesh geometry={geometry} rotation={[Math.PI / 2.1, 0.32, 0]}>
+      <meshBasicMaterial map={texture} side={THREE.DoubleSide} transparent depthWrite={false} />
+    </mesh>
   );
 }
 
