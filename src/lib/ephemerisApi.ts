@@ -1,6 +1,22 @@
-import type { BodyId, BodyPosition } from "../domain/solarSystem";
+import type { BodyId, BodyPosition, Vec3 } from "../domain/solarSystem";
 import { SMALL_BODY_IDS } from "../domain/solarSystem";
 import type { SmallBodyTrajectory } from "./smallBodyTrajectory";
+
+// The backend's vectors (JPL Horizons, VSOP elements) are J2000 *ecliptic*, while the scene and
+// astronomy-engine's planets are J2000 *equatorial*. The frames differ by a rotation about the
+// equinox (x) axis through the J2000 obliquity: 84381.448″ (IAU 1976), the value Horizons uses to
+// define its ecliptic. (astronomy-engine uses the IAU 2006 84381.406″; 0.04″ apart.)
+const J2000_OBLIQUITY_RAD = (84381.448 / 3600) * (Math.PI / 180);
+const COS_OBLIQUITY = Math.cos(J2000_OBLIQUITY_RAD);
+const SIN_OBLIQUITY = Math.sin(J2000_OBLIQUITY_RAD);
+
+export function eclipticToEquatorial({ x, y, z }: Vec3): Vec3 {
+  return {
+    x,
+    y: y * COS_OBLIQUITY - z * SIN_OBLIQUITY,
+    z: y * SIN_OBLIQUITY + z * COS_OBLIQUITY,
+  };
+}
 
 type PositionResponse = {
   body: BodyId;
@@ -35,11 +51,7 @@ export async function getBackendBodyPositions(bodies: BodyId[], time: Date): Pro
   const payload = (await response.json()) as PositionResponse[];
   return payload.map((entry) => ({
     body: entry.body,
-    positionAu: {
-      x: entry.x,
-      y: entry.y,
-      z: entry.z,
-    },
+    positionAu: eclipticToEquatorial(entry),
   }));
 }
 
@@ -52,11 +64,7 @@ export async function getBackendBodyTrajectory(body: BodyId): Promise<SmallBodyT
   const payload = (await response.json()) as TrajectoryPointResponse[];
   const points = payload.map((point) => ({
     time: new Date(point.timeUtc),
-    positionAu: {
-      x: point.x,
-      y: point.y,
-      z: point.z,
-    },
+    positionAu: eclipticToEquatorial(point),
   }));
   return points.sort((left, right) => left.time.getTime() - right.time.getTime());
 }

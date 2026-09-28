@@ -54,6 +54,22 @@ class JplHorizonsClientRetryTests {
     }
 
     @Test
+    void requestsVectorsInTheJ2000EclipticFrame() {
+        // The browser converts backend vectors from this frame into its equatorial scene, so the
+        // frame must be pinned explicitly rather than left to Horizons defaults.
+        Fixture fixture = fixture(1);
+        fixture.server()
+            .expect(ExpectedCount.once(), requestTo(Matchers.allOf(
+                Matchers.containsString("REF_SYSTEM=%27ICRF%27"),
+                Matchers.containsString("REF_PLANE=%27ECLIPTIC%27"))))
+            .andRespond(withSuccess(VALID_BODY, MediaType.TEXT_PLAIN));
+
+        fixture.client().vector(BodyId.CERES, Instant.parse("2027-02-19T00:00:00Z"));
+
+        fixture.server().verify();
+    }
+
+    @Test
     void doesNotRetryPermanent4xx() {
         Fixture fixture = fixture(3);
         fixture.server()
