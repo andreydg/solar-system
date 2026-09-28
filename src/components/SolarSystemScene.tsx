@@ -3,7 +3,7 @@ import { Html, Line, OrbitControls, useTexture } from "@react-three/drei";
 import { useEffect, useMemo, useRef, Suspense } from "react";
 import * as THREE from "three";
 import { BODIES, BODY_BY_ID, type BodyId, type BodyPosition, type Vec3, distanceAu, isComet, isSmallBody } from "../domain/solarSystem";
-import { sampleTrajectory } from "../lib/ephemeris";
+import { getNorthPole, sampleTrajectory } from "../lib/ephemeris";
 import { chunkScenePoints, buildOrbitTrailSegments, type SmallBodyTrajectory } from "../lib/smallBodyTrajectory";
 import { addDays } from "../lib/timeUtils";
 import CelestialSphere from "./CelestialSphere";
@@ -23,6 +23,46 @@ const PLANET_TEXTURES: Record<string, string> = {
   uranus: "/textures/uranusmap.jpg",
   neptune: "/textures/neptunemap.jpg",
 };
+
+// Limb haze for planets with visible atmospheres; intensity is relative, tuned by eye.
+const ATMOSPHERES: Partial<Record<BodyId, { color: string; intensity: number }>> = {
+  venus: { color: "#f5deb0", intensity: 0.75 },
+  earth: { color: "#5fa8ff", intensity: 0.95 },
+  uranus: { color: "#a8e6ef", intensity: 0.6 },
+  neptune: { color: "#6f8cff", intensity: 0.7 },
+};
+const ATMOSPHERE_SCALE = 1.1;
+
+const atmosphereVertexShader = `
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+  void main() {
+    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPosition.xyz;
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * worldPosition;
+  }
+`;
+
+// Haze on a shell slightly larger than the planet: nothing at the shell's silhouette, peaking at
+// the planet's limb, thinning out across the disk, and only on the sunlit side (the Sun sits at
+// the scene origin).
+const atmosphereFragmentShader = `
+  uniform vec3 uColor;
+  uniform float uIntensity;
+  uniform float uLimbFacing;
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldPosition;
+  void main() {
+    vec3 normal = normalize(vWorldNormal);
+    float facing = clamp(dot(normal, normalize(cameraPosition - vWorldPosition)), 0.0, 1.0);
+    float outer = smoothstep(0.0, uLimbFacing, facing);
+    float inner = exp(-max(facing - uLimbFacing, 0.0) * 8.0);
+    float daylight = smoothstep(-0.45, 0.35, dot(normal, normalize(-vWorldPosition)));
+    gl_FragColor = vec4(uColor, outer * outer * inner * mix(0.08, 1.0, daylight) * uIntensity);
+    #include <colorspace_fragment>
+  }
+`;
 
 type SolarSystemSceneProps = {
   currentTime: Date;
@@ -45,7 +85,9 @@ export default function SolarSystemScene({
     <Canvas camera={{ position: [0, 38, 42], fov: 48 }} dpr={[1, 2]}>
       <color attach="background" args={["#050505"]} />
       <ambientLight intensity={0.35} />
-      <pointLight color="#fff2c0" intensity={900} position={[0, 0, 0]} />
+      {/* No distance falloff: physical 1/r² spans ~6,000x from Mercury to Neptune, which blew the
+          inner planets out to white and left the ice giants black. */}
+      <pointLight color="#fff2c0" decay={0} intensity={5} position={[0, 0, 0]} />
       <CelestialSphere />
 
       <Suspense fallback={null}>
@@ -254,6 +296,20 @@ function Planet({ highlighted, position }: { highlighted: boolean; position: Bod
   const texture = useTexture(textureUrl, (loaded) => {
     (loaded as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
   });
+  // Point the sphere's +Y (the texture's north) along the real rotation pole. The pole drifts
+  // only fractions of a degree per century, so one epoch serves every date the app shows.
+  const poleQuaternion = useMemo(() => {
+    const quaternion = new THREE.Quaternion();
+    const pole = getNorthPole(position.body, TRAIL_EPOCH);
+    if (pole) {
+      quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(...normalizeVector(toScenePoint(pole))),
+      );
+    }
+    return quaternion;
+  }, [position.body]);
+  const atmosphere = ATMOSPHERES[position.body];
 
   return (
     <group position={scenePosition}>
@@ -269,16 +325,21 @@ function Planet({ highlighted, position }: { highlighted: boolean; position: Bod
           </mesh>
         </>
       ) : null}
-      <mesh>
-        <sphereGeometry args={[visualRadius, 32, 32]} />
-        <meshStandardMaterial
-          map={texture}
-          emissive={highlighted ? body.color : "#000000"}
-          emissiveIntensity={highlighted ? 0.35 : 0}
-          roughness={0.8}
-        />
-      </mesh>
-      {position.body === "saturn" ? <SaturnRings visualRadius={visualRadius} /> : null}
+      <group quaternion={poleQuaternion}>
+        <mesh>
+          <sphereGeometry args={[visualRadius, 64, 48]} />
+          <meshStandardMaterial
+            map={texture}
+            emissive={highlighted ? body.color : "#000000"}
+            emissiveIntensity={highlighted ? 0.35 : 0}
+            roughness={0.8}
+          />
+        </mesh>
+        {position.body === "saturn" ? <SaturnRings visualRadius={visualRadius} /> : null}
+      </group>
+      {atmosphere ? (
+        <Atmosphere color={atmosphere.color} intensity={atmosphere.intensity} radius={visualRadius} />
+      ) : null}
       <Html center distanceFactor={10} position={[0, visualRadius + 0.38, 0]}>
         <span className={highlighted ? "planet-label planet-label-highlighted" : "planet-label"}>
           {body.name}
@@ -355,9 +416,39 @@ function SaturnRings({ visualRadius }: { visualRadius: number }) {
   useEffect(() => () => geometry.dispose(), [geometry]);
   useEffect(() => () => texture.dispose(), [texture]);
 
+  // RingGeometry lies in XY; turn it into the planet's equatorial (XZ) plane. The parent group
+  // carries Saturn's real pole, so the rings open and close over its 29-year orbit.
   return (
-    <mesh geometry={geometry} rotation={[Math.PI / 2.1, 0.32, 0]}>
+    <mesh geometry={geometry} rotation={[-Math.PI / 2, 0, 0]}>
       <meshBasicMaterial map={texture} side={THREE.DoubleSide} transparent depthWrite={false} />
+    </mesh>
+  );
+}
+
+function Atmosphere({ color, intensity, radius }: { color: string; intensity: number; radius: number }) {
+  const material = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        uniforms: {
+          uColor: { value: new THREE.Color(color) },
+          uIntensity: { value: intensity },
+          // How squarely the shell faces the camera just outside the planet's limb.
+          uLimbFacing: { value: Math.sqrt(1 - 1 / ATMOSPHERE_SCALE ** 2) },
+        },
+        vertexShader: atmosphereVertexShader,
+        fragmentShader: atmosphereFragmentShader,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    [color, intensity],
+  );
+
+  useEffect(() => () => material.dispose(), [material]);
+
+  return (
+    <mesh material={material}>
+      <sphereGeometry args={[radius * ATMOSPHERE_SCALE, 64, 48]} />
     </mesh>
   );
 }
