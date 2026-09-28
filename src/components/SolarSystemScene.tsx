@@ -118,8 +118,7 @@ export default function SolarSystemScene({
         <div className="scene-date">{currentTime.toISOString().slice(0, 10)}</div>
       </Html>
 
-      <OrbitControls enableDamping dampingFactor={0.08} maxDistance={220} minDistance={4} />
-      <FocusOnBodies highlightedBodies={highlightedBodies} positions={positions} />
+      <SceneCamera highlightedBodies={highlightedBodies} positions={positions} />
     </Canvas>
   );
 }
@@ -496,35 +495,36 @@ function EventPairLine({
   );
 }
 
-function FocusOnBodies({
+/**
+ * Orbit controls plus the event framing that drives them. `makeDefault` publishes the controls
+ * to the R3F store, which is where the framing reads them from.
+ */
+export function SceneCamera({
   highlightedBodies,
   positions,
 }: {
   highlightedBodies: BodyId[];
   positions: BodyPosition[];
 }) {
-  const { camera, controls } = useThree();
-  const lastFocusKey = useRef<string | null>(null);
+  const camera = useThree((state) => state.camera);
+  const controls = useThree((state) => state.controls) as OrbitControlsImpl | null;
+  // App recreates highlightedBodies for every loaded event, so the array doubles as the event's
+  // identity. Framing once per event means playback moving the bodies afterwards leaves the
+  // camera to the user.
+  const framedEvent = useRef<BodyId[] | null>(null);
 
   useEffect(() => {
-    if (highlightedBodies.length !== 2) {
-      lastFocusKey.current = null;
+    if (highlightedBodies.length !== 2 || !controls || framedEvent.current === highlightedBodies) {
       return;
     }
 
     const first = positions.find((position) => position.body === highlightedBodies[0]);
     const second = positions.find((position) => position.body === highlightedBodies[1]);
-
-    if (!first || !second || !controls) {
-      return;
+    if (!first || !second) {
+      return; // e.g. a small body still loading: frame the pair once its position arrives
     }
 
-    const focusKey = `${highlightedBodies.join("-")}-${first.positionAu.x}-${second.positionAu.z}`;
-    if (lastFocusKey.current === focusKey) {
-      return;
-    }
-
-    lastFocusKey.current = focusKey;
+    framedEvent.current = highlightedBodies;
 
     const pointA = toScenePoint(first.positionAu);
     const pointB = toScenePoint(second.positionAu);
@@ -540,14 +540,13 @@ function FocusOnBodies({
     );
     const cameraHeight = Math.max(spread * 0.75, 10);
     const cameraDepth = Math.max(spread * 0.65, 10);
-    const orbitControls = controls as OrbitControlsImpl;
 
-    orbitControls.target.set(midpoint[0], midpoint[1], midpoint[2]);
+    controls.target.set(midpoint[0], midpoint[1], midpoint[2]);
     camera.position.set(midpoint[0], midpoint[1] + cameraHeight, midpoint[2] + cameraDepth);
-    orbitControls.update();
+    controls.update();
   }, [camera, controls, highlightedBodies, positions]);
 
-  return null;
+  return <OrbitControls makeDefault enableDamping dampingFactor={0.08} maxDistance={220} minDistance={4} />;
 }
 
 function toScenePoint(positionAu: Vec3): [number, number, number] {
