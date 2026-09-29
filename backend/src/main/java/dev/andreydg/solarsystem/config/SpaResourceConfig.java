@@ -21,9 +21,11 @@ public class SpaResourceConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        // No resolver cache: it keys entries by request path, and every distinct client route
+        // resolves to index.html, so anonymous traffic could grow it without bound.
         registry.addResourceHandler("/**")
             .addResourceLocations("classpath:/static/")
-            .resourceChain(true)
+            .resourceChain(false)
             .addResolver(new SpaPathResourceResolver());
     }
 

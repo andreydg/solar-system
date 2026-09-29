@@ -2,12 +2,19 @@ package dev.andreydg.solarsystem;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.servlet.HandlerMapping;
+import org.springframework.web.servlet.handler.SimpleUrlHandlerMapping;
+import org.springframework.web.servlet.resource.CachingResourceResolver;
+import org.springframework.web.servlet.resource.ResourceHttpRequestHandler;
 
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -22,6 +29,10 @@ class SpaForwardingTests {
 
     @LocalServerPort
     private int port;
+
+    @Autowired
+    @Qualifier("resourceHandlerMapping")
+    private HandlerMapping resourceHandlerMapping;
 
     // Don't throw on 4xx/5xx — these tests assert on the status/body of error responses too.
     private RestClient client() {
@@ -86,6 +97,25 @@ class SpaForwardingTests {
         if (response.getBody() != null) {
             assertThat(response.getBody()).doesNotContain("<div id=\"root\">");
         }
+    }
+
+    @Test
+    void distinctClientRoutesAreNotRetainedInAResourceCache() {
+        // Anyone can mint endless distinct client routes. They all resolve to index.html, so a
+        // per-path resource cache would grow without bound; none of them may be retained.
+        RestClient client = client();
+        for (int i = 0; i < 200; i++) {
+            client.get().uri("/client-route-" + i).retrieve().toBodilessEntity();
+        }
+
+        ResourceHttpRequestHandler handler = (ResourceHttpRequestHandler)
+            ((SimpleUrlHandlerMapping) resourceHandlerMapping).getHandlerMap().get("/**");
+        long retainedEntries = handler.getResourceResolvers().stream()
+            .filter(CachingResourceResolver.class::isInstance)
+            .map(resolver -> (Map<?, ?>) ((CachingResourceResolver) resolver).getCache().getNativeCache())
+            .mapToLong(Map::size)
+            .sum();
+        assertThat(retainedEntries).isLessThan(10);
     }
 
     @Test
