@@ -12,26 +12,34 @@ import {
   pairView,
   type CameraView,
 } from "../lib/cameraViews";
-import { getVisualRadius, toScenePoint } from "../lib/sceneSpace";
+import { getVisualRadius, SUN_RADIUS, toScenePoint, type ScenePoint } from "../lib/sceneSpace";
 
 const FLIGHT_SECONDS = 1.4;
 const OVERVIEW_MIN_DISTANCE = 4;
 // How close you can zoom to a focused body, in multiples of its rendered radius.
 const MIN_ZOOM_RADII = 1.3;
+// The camera's usual near plane. Close to a body it is pulled in to half the gap to the nearest
+// surface, which at full zoom is well inside this, so the surface isn't clipped away.
+const DEFAULT_NEAR = 0.1;
+const MIN_NEAR = 0.001;
 
 // What the camera should do next, decided from props and carried out on the next frame.
 type CameraRequest =
-  | { kind: "view"; view: CameraView }
+  | { kind: "pair"; points: [ScenePoint, ScenePoint]; radius: number }
   | { kind: "overview" }
   | { kind: "follow"; body: BodyId; radius: number };
 
 type Flight = {
   from: CameraView;
   elapsed: number;
-  // Re-evaluated every frame so a flight lands on a body that keeps moving; null if it vanished.
-  goal: () => CameraView | null;
+  // Re-evaluated every frame so a flight lands on a body that keeps moving.
+  goal: () => CameraView;
   onArrive: () => void;
 };
+
+// The body the camera is flying to or following. `lastPoint` is where it was last seen, so a
+// position that is briefly missing (e.g. a failed live fetch) pauses the follow instead of ending it.
+type Focus = { body: BodyId; lastPoint: THREE.Vector3 };
 
 type SceneCameraProps = {
   focusedBody: BodyId | null;
@@ -50,12 +58,14 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
   const shownFocus = useRef<BodyId | null>(null);
   const request = useRef<CameraRequest | null>(null);
   const flight = useRef<Flight | null>(null);
-  const following = useRef<{ body: BodyId; lastPoint: THREE.Vector3 } | null>(null);
+  const focus = useRef<Focus | null>(null);
   const latestPositions = useRef(positions);
+  const latestHighlighted = useRef(highlightedBodies);
 
   useEffect(() => {
     latestPositions.current = positions;
-  }, [positions]);
+    latestHighlighted.current = highlightedBodies;
+  }, [positions, highlightedBodies]);
 
   useEffect(() => {
     // A newly loaded event takes over the camera; App clears any focus in the same update.
@@ -66,8 +76,10 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
         framedEvent.current = highlightedBodies;
         shownFocus.current = focusedBody;
         request.current = {
-          kind: "view",
-          view: pairView(toScenePoint(first.positionAu), toScenePoint(second.positionAu)),
+          kind: "pair",
+          points: [toScenePoint(first.positionAu), toScenePoint(second.positionAu)],
+          // Event bodies are drawn highlighted (enlarged); leave room for the bigger of the two.
+          radius: Math.max(...highlightedBodies.map((body) => renderedRadius(body, true))),
         };
         return;
       }
@@ -88,11 +100,7 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
     request.current = {
       kind: "follow",
       body: focusedBody,
-      radius: getVisualRadius(
-        BODY_BY_ID[focusedBody].radiusKm,
-        highlightedBodies.includes(focusedBody),
-        isComet(focusedBody),
-      ),
+      radius: renderedRadius(focusedBody, highlightedBodies.includes(focusedBody)),
     };
   }, [focusedBody, highlightedBodies, positions]);
 
@@ -110,28 +118,36 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
     const next = request.current;
     if (next) {
       request.current = null;
-      following.current = null;
+      focus.current = null;
+      flight.current = null;
       const from = { position: camera.position.clone(), target: controls.target.clone() };
       if (next.kind === "follow") {
         const start = scenePointOf(next.body);
         if (start) {
           const closeUp = closeUpView(start.toArray(), camera.position, next.radius);
           const offset = closeUp.position.sub(closeUp.target);
+          const target: Focus = { body: next.body, lastPoint: start };
+          focus.current = target;
           controls.minDistance = next.radius * MIN_ZOOM_RADII;
           flight.current = {
             from,
             elapsed: 0,
             goal: () => {
-              const point = scenePointOf(next.body);
-              return point ? { position: point.clone().add(offset), target: point } : null;
+              const point = scenePointOf(target.body);
+              if (point) {
+                target.lastPoint.copy(point);
+              }
+              return { position: target.lastPoint.clone().add(offset), target: target.lastPoint.clone() };
             },
-            onArrive: () => {
-              following.current = { body: next.body, lastPoint: scenePointOf(next.body) ?? start };
-            },
+            onArrive: () => {},
           };
         }
       } else {
-        const view = next.kind === "view" ? next.view : overviewView();
+        const perspective = camera as THREE.PerspectiveCamera;
+        const lens = perspective.isPerspectiveCamera
+          ? { fov: perspective.fov, aspect: perspective.aspect }
+          : { fov: 48, aspect: 1 };
+        const view = next.kind === "pair" ? pairView(next.points[0], next.points[1], next.radius, lens) : overviewView();
         flight.current = {
           from,
           elapsed: 0,
@@ -150,37 +166,31 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
       current.elapsed += delta;
       const progress = Math.min(current.elapsed / FLIGHT_SECONDS, 1);
       const goal = current.goal();
-      const view = !goal ? null : progress >= 1 ? goal : interpolateView(current.from, goal, easeInOutCubic(progress));
-      if (view) {
-        controls.target.copy(view.target);
-        camera.position.copy(view.position);
-        camera.lookAt(controls.target);
-      }
-      if (!view || progress >= 1) {
+      const view = progress >= 1 ? goal : interpolateView(current.from, goal, easeInOutCubic(progress));
+      controls.target.copy(view.target);
+      camera.position.copy(view.position);
+      camera.lookAt(controls.target);
+      if (progress >= 1) {
         flight.current = null;
         controls.enabled = true;
-        if (view) {
-          current.onArrive();
-        }
+        current.onArrive();
         controls.update();
       }
-      return;
+    } else if (focus.current) {
+      // Keep a followed body centred: shift the camera and target by however far it moved, so the
+      // user's own orbit and zoom around it are preserved. While its position is missing, hold
+      // still and catch up with the whole move once it's back.
+      const followed = focus.current;
+      const point = scenePointOf(followed.body);
+      if (point) {
+        const moved = point.clone().sub(followed.lastPoint);
+        camera.position.add(moved);
+        controls.target.add(moved);
+        followed.lastPoint.copy(point);
+      }
     }
 
-    // Keep a followed body centred: shift the camera and target by however far it moved, so the
-    // user's own orbit and zoom around it are preserved.
-    const followed = following.current;
-    if (followed) {
-      const point = scenePointOf(followed.body);
-      if (!point) {
-        following.current = null;
-        return;
-      }
-      const moved = point.clone().sub(followed.lastPoint);
-      camera.position.add(moved);
-      controls.target.add(moved);
-      followed.lastPoint.copy(point);
-    }
+    keepNearPlaneInFrontOfSurfaces(camera, latestPositions.current, latestHighlighted.current);
   });
 
   return (
@@ -192,4 +202,29 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
       minDistance={OVERVIEW_MIN_DISTANCE}
     />
   );
+}
+
+function renderedRadius(body: BodyId, highlighted: boolean) {
+  return getVisualRadius(BODY_BY_ID[body].radiusKm, highlighted, isComet(body));
+}
+
+const scratchPoint = new THREE.Vector3();
+
+// Pulls the near plane in to half the gap to the nearest body's surface (the Sun included), and
+// back out to the default away from them, so close-ups aren't clipped and depth precision is kept.
+function keepNearPlaneInFrontOfSurfaces(camera: THREE.Camera, positions: BodyPosition[], highlighted: BodyId[]) {
+  const perspective = camera as THREE.PerspectiveCamera;
+  if (!perspective.isPerspectiveCamera) {
+    return;
+  }
+  let gap = perspective.position.length() - SUN_RADIUS;
+  for (const position of positions) {
+    const center = scratchPoint.set(...toScenePoint(position.positionAu));
+    gap = Math.min(gap, perspective.position.distanceTo(center) - renderedRadius(position.body, highlighted.includes(position.body)));
+  }
+  const near = THREE.MathUtils.clamp(gap * 0.5, MIN_NEAR, DEFAULT_NEAR);
+  if (Math.abs(perspective.near - near) > 1e-9) {
+    perspective.near = near;
+    perspective.updateProjectionMatrix();
+  }
 }

@@ -6,7 +6,7 @@ import { BODIES, BODY_BY_ID, type BodyId, type BodyPosition, distanceAu, isComet
 import { OVERVIEW_CAMERA_POSITION } from "../lib/cameraViews";
 import { getNorthPole, sampleTrajectory } from "../lib/ephemeris";
 import { pickVisibleLabels, type LabelBox } from "../lib/labelLayout";
-import { AU_TO_SCENE_UNITS, getVisualRadius, toScenePoint, type ScenePoint } from "../lib/sceneSpace";
+import { AU_TO_SCENE_UNITS, getVisualRadius, SUN_RADIUS, toScenePoint, type ScenePoint } from "../lib/sceneSpace";
 import { chunkScenePoints, buildOrbitTrailSegments, type SmallBodyTrajectory } from "../lib/smallBodyTrajectory";
 import { addDays } from "../lib/timeUtils";
 import CelestialSphere from "./CelestialSphere";
@@ -34,7 +34,6 @@ const ATMOSPHERES: Partial<Record<BodyId, { color: string; intensity: number }>>
   neptune: { color: "#6f8cff", intensity: 0.7 },
 };
 const ATMOSPHERE_SCALE = 1.1;
-const SUN_RADIUS = 0.72;
 
 // Click targets never shrink below this radius on screen, so small, distant bodies stay easy to hit.
 const HIT_RADIUS_PX = 14;

@@ -6,6 +6,9 @@ export type ScenePoint = [number, number, number];
 // separately (getVisualRadius) so everything stays visible.
 export const AU_TO_SCENE_UNITS = 3.2;
 
+// The Sun's rendered radius; it sits at the scene origin.
+export const SUN_RADIUS = 0.72;
+
 /** J2000 equatorial AU (x → equinox, z → celestial north) to scene units, with scene +Y up. */
 export function toScenePoint(positionAu: Vec3): ScenePoint {
   return [
