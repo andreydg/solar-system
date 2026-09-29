@@ -8,8 +8,9 @@
 
 export type Vec3 = [number, number, number];
 
-// Far enough to sit behind the solar system (camera maxDistance is 220) but inside the camera
-// far plane (1000).
+// The sky is drawn centred on the camera (see CelestialSphere), first and without depth writes, so
+// it stays behind the solar system at any zoom; the radius only has to fit inside the camera's far
+// plane (1000).
 export const SKY_RADIUS = 500;
 
 const DEG2RAD = Math.PI / 180;

@@ -75,10 +75,15 @@ public class JplHorizonsClient {
             throw new JplHorizonsException("No JPL Horizons command configured for " + body.apiValue());
         }
 
+        // Pin the frame rather than rely on Horizons defaults: J2000 ecliptic (ICRF), the same frame
+        // as the VSOP elements used for events. The browser rotates these into its J2000
+        // equatorial scene (src/lib/ephemerisApi.ts).
         URI uri = buildUri(
             "format", "text",
             "COMMAND", quote(command),
             "CENTER", quote("500@10"),
+            "REF_SYSTEM", quote("ICRF"),
+            "REF_PLANE", quote("ECLIPTIC"),
             "EPHEM_TYPE", quote("VECTORS"),
             "VEC_TABLE", quote("2"),
             "OUT_UNITS", quote("AU-D"),

@@ -8,10 +8,13 @@ import { chunkScenePoints, buildOrbitTrailSegments, type SmallBodyTrajectory } f
 import { addDays } from "../lib/timeUtils";
 import CelestialSphere from "./CelestialSphere";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import { pairView } from "../lib/cameraViews";
 
 const AU_TO_SCENE_UNITS = 3.2;
 const ORBIT_SAMPLE_COUNT = 192;
 const TRAIL_EPOCH = new Date("2026-01-01T00:00:00Z");
+// How far out the user can zoom; framing a wide event pair can raise it (see SceneCamera).
+const MAX_CAMERA_DISTANCE = 220;
 
 const PLANET_TEXTURES: Record<string, string> = {
   mercury: "/textures/mercurymap.jpg",
@@ -118,8 +121,7 @@ export default function SolarSystemScene({
         <div className="scene-date">{currentTime.toISOString().slice(0, 10)}</div>
       </Html>
 
-      <OrbitControls enableDamping dampingFactor={0.08} maxDistance={220} minDistance={4} />
-      <FocusOnBodies highlightedBodies={highlightedBodies} positions={positions} />
+      <SceneCamera highlightedBodies={highlightedBodies} positions={positions} />
     </Canvas>
   );
 }
@@ -496,58 +498,62 @@ function EventPairLine({
   );
 }
 
-function FocusOnBodies({
+/**
+ * Orbit controls plus the event framing that drives them. `makeDefault` publishes the controls
+ * to the R3F store, which is where the framing reads them from.
+ */
+export function SceneCamera({
   highlightedBodies,
   positions,
 }: {
   highlightedBodies: BodyId[];
   positions: BodyPosition[];
 }) {
-  const { camera, controls } = useThree();
-  const lastFocusKey = useRef<string | null>(null);
+  // The framing adjusts the controls' limits, so it reads the live camera and controls from the
+  // store rather than mutating values captured during render; this subscription re-runs it once
+  // OrbitControls registers itself as the default controls.
+  const get = useThree((state) => state.get);
+  const hasControls = useThree((state) => state.controls !== null);
+  // App recreates highlightedBodies for every loaded event, so the array doubles as the event's
+  // identity. Framing once per event means playback moving the bodies afterwards leaves the
+  // camera to the user.
+  const framedEvent = useRef<BodyId[] | null>(null);
 
   useEffect(() => {
-    if (highlightedBodies.length !== 2) {
-      lastFocusKey.current = null;
+    if (highlightedBodies.length !== 2 || !hasControls || framedEvent.current === highlightedBodies) {
       return;
     }
+    const camera = get().camera;
+    const controls = get().controls as OrbitControlsImpl;
 
     const first = positions.find((position) => position.body === highlightedBodies[0]);
     const second = positions.find((position) => position.body === highlightedBodies[1]);
-
-    if (!first || !second || !controls) {
-      return;
+    if (!first || !second) {
+      return; // e.g. a small body still loading: frame the pair once its position arrives
     }
 
-    const focusKey = `${highlightedBodies.join("-")}-${first.positionAu.x}-${second.positionAu.z}`;
-    if (lastFocusKey.current === focusKey) {
-      return;
-    }
+    framedEvent.current = highlightedBodies;
 
-    lastFocusKey.current = focusKey;
-
-    const pointA = toScenePoint(first.positionAu);
-    const pointB = toScenePoint(second.positionAu);
-    const midpoint: [number, number, number] = [
-      (pointA[0] + pointB[0]) / 2,
-      (pointA[1] + pointB[1]) / 2,
-      (pointA[2] + pointB[2]) / 2,
-    ];
-    const spread = Math.hypot(
-      pointA[0] - pointB[0],
-      pointA[1] - pointB[1],
-      pointA[2] - pointB[2],
+    // Event bodies are drawn highlighted (enlarged); leave room for the bigger of the two.
+    const radius = Math.max(
+      ...highlightedBodies.map((body) => getVisualRadius(BODY_BY_ID[body].radiusKm, true, isComet(body))),
     );
-    const cameraHeight = Math.max(spread * 0.75, 10);
-    const cameraDepth = Math.max(spread * 0.65, 10);
-    const orbitControls = controls as OrbitControlsImpl;
+    const lens = (camera as THREE.PerspectiveCamera).isPerspectiveCamera
+      ? { fov: (camera as THREE.PerspectiveCamera).fov, aspect: (camera as THREE.PerspectiveCamera).aspect }
+      : { fov: 48, aspect: 1 };
+    const view = pairView(toScenePoint(first.positionAu), toScenePoint(second.positionAu), radius, lens);
 
-    orbitControls.target.set(midpoint[0], midpoint[1], midpoint[2]);
-    camera.position.set(midpoint[0], midpoint[1] + cameraHeight, midpoint[2] + cameraDepth);
-    orbitControls.update();
-  }, [camera, controls, highlightedBodies, positions]);
+    // A wide pair on a narrow canvas can need the camera beyond the usual zoom-out limit. Raise the
+    // limit to fit this framing, or update() would pull the camera back in and crop a body.
+    controls.maxDistance = Math.max(MAX_CAMERA_DISTANCE, view.position.distanceTo(view.target));
+    controls.target.copy(view.target);
+    camera.position.copy(view.position);
+    controls.update();
+  }, [get, hasControls, highlightedBodies, positions]);
 
-  return null;
+  return (
+    <OrbitControls makeDefault enableDamping dampingFactor={0.08} maxDistance={MAX_CAMERA_DISTANCE} minDistance={4} />
+  );
 }
 
 function toScenePoint(positionAu: Vec3): [number, number, number] {
