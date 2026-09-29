@@ -62,6 +62,7 @@ async function mountSceneCamera(initial: Props, canvas = { width: 1280, height: 
     target: () => rounded(controls().target.toArray()),
     distanceToTarget: () => camera().position.distanceTo(controls().target),
     minDistance: () => controls().minDistance,
+    maxDistance: () => controls().maxDistance,
     near: () => camera().near,
     // Scroll-zoom as far in as the controls allow.
     zoomToLimit: async () => {
@@ -103,6 +104,34 @@ describe("SceneCamera event framing", () => {
       expect(Math.abs(onScreen.x), `${position.body} x`).toBeLessThan(1);
       expect(Math.abs(onScreen.y), `${position.body} y`).toBeLessThan(1);
     }
+  });
+
+  it("keeps a pair on screen when framing it needs more than the default zoom-out limit", async () => {
+    // Uranus and Neptune on 2096-09-25 sit ~45 AU apart; a 600×800 canvas needs the camera well
+    // beyond the controls' usual 220-unit limit, which used to pull it back in and crop Uranus.
+    const positions = getBodyPositions(["uranus", "neptune"], new Date("2096-09-25T00:00:00Z"));
+    const view = await mountSceneCamera(
+      { focusedBody: null, highlightedBodies: ["uranus", "neptune"], positions },
+      { width: 600, height: 800 },
+    );
+
+    for (const position of positions) {
+      const onScreen = view.project(position);
+      expect(Math.abs(onScreen.x), `${position.body} x`).toBeLessThan(1);
+      expect(Math.abs(onScreen.y), `${position.body} y`).toBeLessThan(1);
+      expect(onScreen.z, `${position.body} inside the far plane`).toBeLessThan(1);
+    }
+  });
+
+  it("restores the default zoom-out limit after flying on from a wide framing", async () => {
+    const event: BodyId[] = ["uranus", "neptune"];
+    const positions = getBodyPositions(event, new Date("2096-09-25T00:00:00Z"));
+    const view = await mountSceneCamera({ focusedBody: null, highlightedBodies: event, positions }, { width: 600, height: 800 });
+    expect(view.maxDistance()).toBeGreaterThan(220);
+
+    await view.rerender({ focusedBody: "neptune", highlightedBodies: event, positions });
+
+    expect(view.maxDistance()).toBe(220);
   });
 
   it("leaves the camera to the user while playback moves the framed bodies", async () => {

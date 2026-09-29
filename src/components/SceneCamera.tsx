@@ -16,6 +16,9 @@ import { getVisualRadius, SUN_RADIUS, toScenePoint, type ScenePoint } from "../l
 
 const FLIGHT_SECONDS = 1.4;
 const OVERVIEW_MIN_DISTANCE = 4;
+// How far out the user can zoom. Framing a wide event pair on a narrow canvas can need more, so
+// that framing raises it; flying anywhere else restores it.
+const DEFAULT_MAX_DISTANCE = 220;
 // How close you can zoom to a focused body, in multiples of its rendered radius.
 const MIN_ZOOM_RADII = 1.3;
 // The camera's usual near plane. Close to a body it is pulled in to half the gap to the nearest
@@ -139,7 +142,9 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
               }
               return { position: target.lastPoint.clone().add(offset), target: target.lastPoint.clone() };
             },
-            onArrive: () => {},
+            onArrive: () => {
+              controls.maxDistance = DEFAULT_MAX_DISTANCE;
+            },
           };
         }
       } else {
@@ -153,7 +158,10 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
           elapsed: 0,
           goal: () => view,
           onArrive: () => {
+            // Set the limits before the landing update(), which would otherwise pull a wide
+            // framing back inside the default zoom-out limit and crop a body.
             controls.minDistance = OVERVIEW_MIN_DISTANCE;
+            controls.maxDistance = Math.max(DEFAULT_MAX_DISTANCE, view.position.distanceTo(view.target));
           },
         };
       }
@@ -198,7 +206,7 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
       makeDefault
       enableDamping
       dampingFactor={0.08}
-      maxDistance={220}
+      maxDistance={DEFAULT_MAX_DISTANCE}
       minDistance={OVERVIEW_MIN_DISTANCE}
     />
   );

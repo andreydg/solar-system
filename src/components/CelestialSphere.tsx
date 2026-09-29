@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from "react";
-import { useThree } from "@react-three/fiber";
+import { useEffect, useMemo, useRef } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { buildStarField, SCENE_TO_GALACTIC_ROWMAJOR, SKY_RADIUS } from "../lib/celestialSphere";
 
@@ -145,8 +145,16 @@ export default function CelestialSphere() {
   useEffect(() => () => starMaterial.dispose(), [starMaterial]);
   useEffect(() => () => milkyWayMaterial.dispose(), [milkyWayMaterial]);
 
+  // The sky is infinitely far away, so it moves with the camera: however far out the camera goes
+  // (event framing can exceed the usual zoom limit), the stars don't shift and it never leaves the
+  // sphere.
+  const sky = useRef<THREE.Group>(null);
+  useFrame(({ camera }) => {
+    sky.current?.position.copy(camera.position);
+  });
+
   return (
-    <group>
+    <group ref={sky}>
       {/* Diffuse galactic band, slightly inside the star shell. */}
       <mesh material={milkyWayMaterial} frustumCulled={false} renderOrder={-1}>
         <sphereGeometry args={[SKY_RADIUS - 20, 64, 48]} />
