@@ -25,6 +25,10 @@ const MIN_ZOOM_RADII = 1.3;
 // surface, which at full zoom is well inside this, so the surface isn't clipped away.
 const DEFAULT_NEAR = 0.1;
 const MIN_NEAR = 0.001;
+// Frame-loop slot for moving the camera: after drei's OrbitControls applies user input (-1) and
+// before everything that reads the camera at the default 0 (sky, labels, hit areas, drei Html),
+// so none of those trail a frame behind during flights and follows.
+const CAMERA_FRAME_PRIORITY = -0.5;
 
 // What the camera should do next, decided from props and carried out on the next frame.
 type CameraRequest =
@@ -199,7 +203,7 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
     }
 
     keepNearPlaneInFrontOfSurfaces(camera, latestPositions.current, latestHighlighted.current);
-  });
+  }, CAMERA_FRAME_PRIORITY);
 
   return (
     <OrbitControls
