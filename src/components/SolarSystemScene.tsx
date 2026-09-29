@@ -1,20 +1,19 @@
-import { Canvas, useThree } from "@react-three/fiber";
-import { Html, Line, OrbitControls, useTexture } from "@react-three/drei";
-import { useEffect, useMemo, useRef, Suspense } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { Html, Line, useCursor, useTexture } from "@react-three/drei";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import * as THREE from "three";
-import { BODIES, BODY_BY_ID, type BodyId, type BodyPosition, type Vec3, distanceAu, isComet, isSmallBody } from "../domain/solarSystem";
+import { BODIES, BODY_BY_ID, type BodyId, type BodyPosition, distanceAu, isComet, isSmallBody } from "../domain/solarSystem";
+import { OVERVIEW_CAMERA_POSITION } from "../lib/cameraViews";
 import { getNorthPole, sampleTrajectory } from "../lib/ephemeris";
+import { pickVisibleLabels, type LabelBox } from "../lib/labelLayout";
+import { AU_TO_SCENE_UNITS, getVisualRadius, SUN_RADIUS, toScenePoint, type ScenePoint } from "../lib/sceneSpace";
 import { chunkScenePoints, buildOrbitTrailSegments, type SmallBodyTrajectory } from "../lib/smallBodyTrajectory";
 import { addDays } from "../lib/timeUtils";
 import CelestialSphere from "./CelestialSphere";
-import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { pairView } from "../lib/cameraViews";
+import SceneCamera from "./SceneCamera";
 
-const AU_TO_SCENE_UNITS = 3.2;
 const ORBIT_SAMPLE_COUNT = 192;
 const TRAIL_EPOCH = new Date("2026-01-01T00:00:00Z");
-// How far out the user can zoom; framing a wide event pair can raise it (see SceneCamera).
-const MAX_CAMERA_DISTANCE = 220;
 
 const PLANET_TEXTURES: Record<string, string> = {
   mercury: "/textures/mercurymap.jpg",
@@ -35,6 +34,14 @@ const ATMOSPHERES: Partial<Record<BodyId, { color: string; intensity: number }>>
   neptune: { color: "#6f8cff", intensity: 0.7 },
 };
 const ATMOSPHERE_SCALE = 1.1;
+
+// Click targets never shrink below this radius on screen, so small, distant bodies stay easy to hit.
+const HIT_RADIUS_PX = 14;
+// A pointer that moved further than this between press and release was dragging the camera.
+const CLICK_SLOP_PX = 4;
+// How far a label's centre sits above its anchor; matches `.planet-label { translate }` (0.85rem).
+const LABEL_LIFT_PX = 0.85 * 16;
+const scratchVector = new THREE.Vector3();
 
 const atmosphereVertexShader = `
   varying vec3 vWorldNormal;
@@ -69,23 +76,49 @@ const atmosphereFragmentShader = `
 
 type SolarSystemSceneProps = {
   currentTime: Date;
+  focusedBody: BodyId | null;
   highlightedBodies: BodyId[];
   positions: BodyPosition[];
   smallBodyTrajectories: Partial<Record<BodyId, SmallBodyTrajectory>>;
   visibleBodies: BodyId[];
+  /** Fly to and follow a body; null returns to the Sun-centred overview. */
+  onFocusBody: (body: BodyId | null) => void;
 };
 
 export default function SolarSystemScene({
   currentTime,
+  focusedBody,
   highlightedBodies,
   positions,
   smallBodyTrajectories,
   visibleBodies,
+  onFocusBody,
 }: SolarSystemSceneProps) {
   const highlightedSet = useMemo(() => new Set(highlightedBodies), [highlightedBodies]);
+  // Event bodies' labels win over the Sun's, which wins over the rest (bigger bodies first). The
+  // focused body has no label: it would only cover the close-up.
+  const labels: LabelSpec[] = [
+    { key: "sun", name: "Sun", anchor: [0, SUN_RADIUS, 0], highlighted: false, priority: 2e6, onSelect: () => onFocusBody(null) },
+    ...positions
+      .filter((position) => position.body !== focusedBody)
+      .map((position) => {
+        const body = BODY_BY_ID[position.body];
+        const highlighted = highlightedSet.has(position.body);
+        const [x, y, z] = toScenePoint(position.positionAu);
+        const radius = getVisualRadius(body.radiusKm, highlighted, isComet(position.body));
+        return {
+          key: position.body,
+          name: body.name,
+          anchor: [x, y + radius, z] as ScenePoint,
+          highlighted,
+          priority: (highlighted ? 3e6 : 0) + body.radiusKm,
+          onSelect: () => onFocusBody(position.body),
+        };
+      }),
+  ];
 
   return (
-    <Canvas camera={{ position: [0, 38, 42], fov: 48 }} dpr={[1, 2]}>
+    <Canvas camera={{ position: OVERVIEW_CAMERA_POSITION, fov: 48 }} dpr={[1, 2]}>
       <color attach="background" args={["#050505"]} />
       <ambientLight intensity={0.35} />
       {/* No distance falloff: physical 1/r² spans ~6,000x from Mercury to Neptune, which blew the
@@ -94,7 +127,7 @@ export default function SolarSystemScene({
       <CelestialSphere />
 
       <Suspense fallback={null}>
-        <Sun />
+        <Sun onSelect={() => onFocusBody(null)} />
         <OrbitTrails
           smallBodyTrajectories={smallBodyTrajectories}
           visibleBodies={visibleBodies}
@@ -106,41 +139,41 @@ export default function SolarSystemScene({
               highlighted={highlightedSet.has(position.body)}
               key={position.body}
               position={position}
+              onSelect={() => onFocusBody(position.body)}
             />
           ) : (
             <Planet
               highlighted={highlightedSet.has(position.body)}
               key={position.body}
               position={position}
+              onSelect={() => onFocusBody(position.body)}
             />
           ),
         )}
       </Suspense>
+      <BodyLabels labels={labels} />
 
       <Html position={[-18, 14, -18]} transform>
         <div className="scene-date">{currentTime.toISOString().slice(0, 10)}</div>
       </Html>
 
-      <SceneCamera highlightedBodies={highlightedBodies} positions={positions} />
+      <SceneCamera focusedBody={focusedBody} highlightedBodies={highlightedBodies} positions={positions} />
     </Canvas>
   );
 }
 
-function Sun() {
+function Sun({ onSelect }: { onSelect: () => void }) {
   const texture = useTexture("/textures/sunmap.jpg", (loaded) => {
     (loaded as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
   });
   return (
-    <mesh>
-      <sphereGeometry args={[0.72, 64, 64]} />
-      <meshBasicMaterial 
-        map={texture} 
-        color="#ffffff" 
-      />
-      <Html center distanceFactor={12} position={[0, 1.15, 0]}>
-        <span className="planet-label">Sun</span>
-      </Html>
-    </mesh>
+    <group>
+      <mesh>
+        <sphereGeometry args={[SUN_RADIUS, 64, 64]} />
+        <meshBasicMaterial map={texture} color="#ffffff" />
+      </mesh>
+      <FocusHitArea radius={SUN_RADIUS} onSelect={onSelect} />
+    </group>
   );
 }
 
@@ -217,7 +250,13 @@ function OrbitTrails({
   );
 }
 
-export function Comet({ highlighted, position }: { highlighted: boolean; position: BodyPosition }) {
+type BodyProps = {
+  highlighted: boolean;
+  position: BodyPosition;
+  onSelect: () => void;
+};
+
+export function Comet({ highlighted, position, onSelect }: BodyProps) {
   const body = BODY_BY_ID[position.body];
   const scenePosition = toScenePoint(position.positionAu);
   const nucleusRadius = getVisualRadius(body.radiusKm, highlighted, true);
@@ -281,16 +320,12 @@ export function Comet({ highlighted, position }: { highlighted: boolean; positio
           roughness={0.65}
         />
       </mesh>
-      <Html center distanceFactor={10} position={[0, nucleusRadius + 0.42, 0]}>
-        <span className={highlighted ? "planet-label planet-label-highlighted" : "planet-label"}>
-          {body.name}
-        </span>
-      </Html>
+      <FocusHitArea radius={nucleusRadius} onSelect={onSelect} />
     </group>
   );
 }
 
-export function Planet({ highlighted, position }: { highlighted: boolean; position: BodyPosition }) {
+export function Planet({ highlighted, position, onSelect }: BodyProps) {
   const body = BODY_BY_ID[position.body];
   const scenePosition = toScenePoint(position.positionAu);
   const visualRadius = getVisualRadius(body.radiusKm, highlighted, false);
@@ -342,13 +377,123 @@ export function Planet({ highlighted, position }: { highlighted: boolean; positi
       {atmosphere ? (
         <Atmosphere color={atmosphere.color} intensity={atmosphere.intensity} radius={visualRadius} />
       ) : null}
-      <Html center distanceFactor={10} position={[0, visualRadius + 0.38, 0]}>
-        <span className={highlighted ? "planet-label planet-label-highlighted" : "planet-label"}>
-          {body.name}
-        </span>
-      </Html>
+      <FocusHitArea radius={visualRadius} onSelect={onSelect} />
     </group>
   );
+}
+
+/**
+ * Invisible click target around a body that never gets smaller than HIT_RADIUS_PX on screen.
+ * Raycasting ignores `visible`, so it costs no draw call.
+ */
+function FocusHitArea({ radius, onSelect }: { radius: number; onSelect: () => void }) {
+  const mesh = useRef<THREE.Mesh>(null);
+  const [hovered, setHovered] = useState(false);
+  useCursor(hovered);
+
+  useFrame(({ camera, size }) => {
+    const hitArea = mesh.current;
+    if (!hitArea || !(camera instanceof THREE.PerspectiveCamera)) {
+      return;
+    }
+    const distance = camera.position.distanceTo(hitArea.getWorldPosition(scratchVector));
+    const unitsPerPixel = (2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / size.height;
+    hitArea.scale.setScalar(Math.max(radius, HIT_RADIUS_PX * unitsPerPixel));
+  });
+
+  return (
+    <mesh
+      ref={mesh}
+      visible={false}
+      onClick={(event) => {
+        if (event.delta > CLICK_SLOP_PX) {
+          return;
+        }
+        event.stopPropagation();
+        onSelect();
+      }}
+      onPointerOut={() => setHovered(false)}
+      onPointerOver={(event) => {
+        event.stopPropagation();
+        setHovered(true);
+      }}
+    >
+      <sphereGeometry args={[1, 16, 12]} />
+    </mesh>
+  );
+}
+
+type LabelSpec = {
+  key: string;
+  name: string;
+  /** The top of the body; the label sits just above it. */
+  anchor: ScenePoint;
+  highlighted: boolean;
+  priority: number;
+  onSelect: () => void;
+};
+
+/**
+ * Body names as buttons that fly to their body. They keep a fixed on-screen size (drei's
+ * distanceFactor made them unreadable in the overview and huge up close), and each frame any
+ * label that would overlap a higher-priority one is hidden until zooming in separates them.
+ */
+function BodyLabels({ labels }: { labels: LabelSpec[] }) {
+  const buttons = useRef(new Map<string, HTMLButtonElement>());
+  const latestLabels = useRef(labels);
+
+  useEffect(() => {
+    latestLabels.current = labels;
+  }, [labels]);
+
+  useFrame(({ camera, size }) => {
+    const boxes: LabelBox[] = [];
+    for (const label of latestLabels.current) {
+      const button = buttons.current.get(label.key);
+      if (!button) {
+        continue;
+      }
+      const projected = scratchVector.set(...label.anchor).project(camera);
+      if (projected.z > 1) {
+        button.style.visibility = "hidden"; // behind the camera
+        continue;
+      }
+      const width = button.offsetWidth;
+      const height = button.offsetHeight;
+      const x = (projected.x * 0.5 + 0.5) * size.width;
+      const y = (-projected.y * 0.5 + 0.5) * size.height - LABEL_LIFT_PX;
+      boxes.push({ key: label.key, priority: label.priority, x: x - width / 2, y: y - height / 2, width, height });
+    }
+    const visible = pickVisibleLabels(boxes);
+    for (const { key } of boxes) {
+      buttons.current.get(key)!.style.visibility = visible.has(key) ? "visible" : "hidden";
+    }
+  });
+
+  return labels.map((label) => (
+    <Html center key={label.key} position={label.anchor}>
+      <button
+        className={label.highlighted ? "planet-label planet-label-highlighted" : "planet-label"}
+        ref={(button) => {
+          if (button) {
+            buttons.current.set(label.key, button);
+          } else {
+            buttons.current.delete(label.key);
+          }
+        }}
+        // Hidden until the first layout pass decides whether it fits.
+        style={{ visibility: "hidden" }}
+        type="button"
+        onClick={(event) => {
+          // The scene's own click handling sits underneath the label.
+          event.stopPropagation();
+          label.onSelect();
+        }}
+      >
+        {label.name}
+      </button>
+    </Html>
+  ));
 }
 
 // Radial brightness/opacity profile of Saturn's rings: faint C ring, bright B ring, the dark
@@ -491,84 +636,11 @@ function EventPairLine({
         points={[pointA, pointB]}
         transparent
       />
-      <Html center distanceFactor={14} position={midpoint}>
+      <Html center position={midpoint}>
         <span className="pair-distance-label">{separationAu.toFixed(4)} AU</span>
       </Html>
     </>
   );
-}
-
-/**
- * Orbit controls plus the event framing that drives them. `makeDefault` publishes the controls
- * to the R3F store, which is where the framing reads them from.
- */
-export function SceneCamera({
-  highlightedBodies,
-  positions,
-}: {
-  highlightedBodies: BodyId[];
-  positions: BodyPosition[];
-}) {
-  // The framing adjusts the controls' limits, so it reads the live camera and controls from the
-  // store rather than mutating values captured during render; this subscription re-runs it once
-  // OrbitControls registers itself as the default controls.
-  const get = useThree((state) => state.get);
-  const hasControls = useThree((state) => state.controls !== null);
-  // App recreates highlightedBodies for every loaded event, so the array doubles as the event's
-  // identity. Framing once per event means playback moving the bodies afterwards leaves the
-  // camera to the user.
-  const framedEvent = useRef<BodyId[] | null>(null);
-
-  useEffect(() => {
-    if (highlightedBodies.length !== 2 || !hasControls || framedEvent.current === highlightedBodies) {
-      return;
-    }
-    const camera = get().camera;
-    const controls = get().controls as OrbitControlsImpl;
-
-    const first = positions.find((position) => position.body === highlightedBodies[0]);
-    const second = positions.find((position) => position.body === highlightedBodies[1]);
-    if (!first || !second) {
-      return; // e.g. a small body still loading: frame the pair once its position arrives
-    }
-
-    framedEvent.current = highlightedBodies;
-
-    // Event bodies are drawn highlighted (enlarged); leave room for the bigger of the two.
-    const radius = Math.max(
-      ...highlightedBodies.map((body) => getVisualRadius(BODY_BY_ID[body].radiusKm, true, isComet(body))),
-    );
-    const lens = (camera as THREE.PerspectiveCamera).isPerspectiveCamera
-      ? { fov: (camera as THREE.PerspectiveCamera).fov, aspect: (camera as THREE.PerspectiveCamera).aspect }
-      : { fov: 48, aspect: 1 };
-    const view = pairView(toScenePoint(first.positionAu), toScenePoint(second.positionAu), radius, lens);
-
-    // A wide pair on a narrow canvas can need the camera beyond the usual zoom-out limit. Raise the
-    // limit to fit this framing, or update() would pull the camera back in and crop a body.
-    controls.maxDistance = Math.max(MAX_CAMERA_DISTANCE, view.position.distanceTo(view.target));
-    controls.target.copy(view.target);
-    camera.position.copy(view.position);
-    controls.update();
-  }, [get, hasControls, highlightedBodies, positions]);
-
-  return (
-    <OrbitControls makeDefault enableDamping dampingFactor={0.08} maxDistance={MAX_CAMERA_DISTANCE} minDistance={4} />
-  );
-}
-
-function toScenePoint(positionAu: Vec3): [number, number, number] {
-  return [
-    positionAu.x * AU_TO_SCENE_UNITS,
-    positionAu.z * AU_TO_SCENE_UNITS,
-    -positionAu.y * AU_TO_SCENE_UNITS,
-  ];
-}
-
-function getVisualRadius(radiusKm: number, highlighted = false, isCometBody = false) {
-  const base = isCometBody
-    ? Math.max(0.28, Math.log10(Math.max(radiusKm, 1)) * 0.12)
-    : Math.max(0.16, Math.log10(Math.max(radiusKm, 0.01)) * 0.09 - 0.12);
-  return highlighted ? Math.max(base * 1.75, isCometBody ? 0.42 : 0.32) : base;
 }
 
 function normalizeVector(vector: [number, number, number]): [number, number, number] {

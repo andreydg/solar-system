@@ -4,7 +4,7 @@ import ControlPanel from "./components/ControlPanel";
 // The 3D scene pulls in three.js + @react-three/*, the bulk of the bundle. Load it lazily
 // so the control panel and initial shell paint without waiting on the heavy WebGL chunk.
 const SolarSystemScene = lazy(() => import("./components/SolarSystemScene"));
-import { BODIES, isSmallBody, type BodyId, type BodyPosition, type ClosestApproachResult } from "./domain/solarSystem";
+import { BODIES, BODY_BY_ID, isSmallBody, type BodyId, type BodyPosition, type ClosestApproachResult } from "./domain/solarSystem";
 import {
   EVENT_TYPE_BY_ID,
   getEventTargetOptions,
@@ -41,6 +41,8 @@ export default function App() {
     Partial<Record<BodyId, SmallBodyTrajectory>>
   >({});
   const [liveSmallBodyPositions, setLiveSmallBodyPositions] = useState<BodyPosition[]>([]);
+  // The body the camera is following, if any; null is the Sun-centred overview.
+  const [focusedBody, setFocusedBody] = useState<BodyId | null>(null);
   const lastFrameMs = useRef<number | null>(null);
   // Mirrors currentTime so the debounced fetch can read the latest value without
   // re-subscribing every animation frame (it keys off the simulated day instead).
@@ -190,7 +192,24 @@ export default function App() {
     visibleSmallBodies,
   ]);
 
+  useEffect(() => {
+    if (!focusedBody) {
+      return;
+    }
+
+    const exitOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setFocusedBody(null);
+      }
+    };
+    window.addEventListener("keydown", exitOnEscape);
+    return () => window.removeEventListener("keydown", exitOnEscape);
+  }, [focusedBody]);
+
   const handleToggleBody = (body: BodyId) => {
+    if (body === focusedBody && visibleBodies.includes(body)) {
+      setFocusedBody(null);
+    }
     setVisibleBodies((bodies) =>
       bodies.includes(body)
         ? bodies.filter((visibleBody) => visibleBody !== body)
@@ -269,6 +288,7 @@ export default function App() {
       setCurrentTime(result.time);
       ensureBodiesVisible(result.bodyA, result.bodyB);
       setEventResult(result);
+      setFocusedBody(null); // the camera frames the event instead
       setEventStatus(
         result.validationStatus === "validated" || isJplSource(result.source) || isJplSource(result.computedSource)
           ? "Loaded event."
@@ -294,6 +314,7 @@ export default function App() {
         magnitude: null,
         type: "closestApproach",
       });
+      setFocusedBody(null);
       setEventStatus(
         `Backend unavailable; used browser calculation. ${
           error instanceof Error ? error.message : "Unknown backend error"
@@ -321,12 +342,24 @@ export default function App() {
         <Suspense fallback={<div className="scene-loading">Loading 3D view…</div>}>
           <SolarSystemScene
             currentTime={currentTime}
+            focusedBody={focusedBody}
             highlightedBodies={highlightedBodies}
             positions={positions}
             smallBodyTrajectories={smallBodyTrajectories}
             visibleBodies={visibleBodies}
+            onFocusBody={setFocusedBody}
           />
         </Suspense>
+        {focusedBody ? (
+          <div className="focus-chip" role="status">
+            <span>
+              Following <strong>{BODY_BY_ID[focusedBody].name}</strong>
+            </span>
+            <button aria-label="Back to overview (Esc)" type="button" onClick={() => setFocusedBody(null)}>
+              ✕
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <ControlPanel

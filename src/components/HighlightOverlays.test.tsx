@@ -6,9 +6,11 @@ import { Comet, Planet } from "./SolarSystemScene";
 
 vi.mock("@react-three/drei", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@react-three/drei")>()),
-  // Node has no image loading or DOM: hand bodies a blank texture and skip the HTML labels.
+  // Node has no image loading or DOM: hand bodies a blank texture and skip the HTML labels and
+  // pointer cursor.
   useTexture: () => new THREE.Texture(),
   Html: () => null,
+  useCursor: () => {},
 }));
 
 function transparentMaterials(root: THREE.Object3D) {
@@ -29,7 +31,7 @@ describe("highlighted bodies", () => {
   // highlighted (e.g. re-shown after picking an event) creates its selection overlays before its
   // atmosphere; if those overlays wrote depth, the atmosphere behind their surface would vanish.
   it("keep every transparent layer of a planet out of the depth buffer", async () => {
-    const renderer = await ReactThreeTestRenderer.create(<Planet highlighted position={AT_ONE_AU("earth")} />);
+    const renderer = await ReactThreeTestRenderer.create(<Planet highlighted position={AT_ONE_AU("earth")} onSelect={() => {}} />);
     const layers = transparentMaterials(renderer.scene.instance);
 
     expect(layers.length).toBeGreaterThanOrEqual(3); // selection sphere, selection ring, atmosphere
@@ -37,7 +39,7 @@ describe("highlighted bodies", () => {
   });
 
   it("keep every transparent layer of a comet out of the depth buffer", async () => {
-    const renderer = await ReactThreeTestRenderer.create(<Comet highlighted position={AT_ONE_AU("halley")} />);
+    const renderer = await ReactThreeTestRenderer.create(<Comet highlighted position={AT_ONE_AU("halley")} onSelect={() => {}} />);
 
     expect(transparentMaterials(renderer.scene.instance).filter((material) => material.depthWrite)).toEqual([]);
   });

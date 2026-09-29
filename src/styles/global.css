@@ -98,6 +98,7 @@ input[type="range"] {
 }
 
 .hero-panel {
+  position: relative;
   min-height: 100vh;
   background:
     radial-gradient(circle at 30% 25%, rgba(185, 134, 58, 0.16), transparent 32%),
@@ -479,6 +480,8 @@ small {
   background: var(--surface-sunken);
 }
 
+/* Body labels are buttons that fly to their body. They're anchored at the top of the body;
+   `translate` lifts them clear of it and, unlike `transform`, survives the button hover nudge. */
 .planet-label {
   display: inline-flex;
   border: 1px solid var(--border);
@@ -487,9 +490,10 @@ small {
   background: rgba(14, 14, 15, 0.78);
   box-shadow: var(--shadow-soft);
   font-size: 0.72rem;
+  font-weight: 400;
   letter-spacing: 0.02em;
   padding: 0.25rem 0.5rem;
-  pointer-events: none;
+  translate: 0 -0.85rem;
   white-space: nowrap;
 }
 
@@ -513,7 +517,40 @@ small {
   letter-spacing: 0.02em;
   padding: 0.2rem 0.45rem;
   pointer-events: none;
+  /* Below the connecting line, clear of the body labels above each end. */
+  translate: 0 0.95rem;
   white-space: nowrap;
+}
+
+.focus-chip {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  /* Above drei's HTML labels, whose z-indices run into the millions. */
+  z-index: 2147483640;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-pill);
+  color: var(--text);
+  background: rgba(14, 14, 15, 0.82);
+  box-shadow: 0 0 14px var(--accent-soft);
+  font-size: 0.8rem;
+  padding: 0.3rem 0.3rem 0.3rem 0.85rem;
+}
+
+.focus-chip strong {
+  color: var(--accent-bright);
+}
+
+.focus-chip button {
+  display: inline-grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  font-size: 0.75rem;
 }
 
 .scene-date {
