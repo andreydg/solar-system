@@ -215,7 +215,7 @@ function OrbitTrails({
   );
 }
 
-function Comet({ highlighted, position }: { highlighted: boolean; position: BodyPosition }) {
+export function Comet({ highlighted, position }: { highlighted: boolean; position: BodyPosition }) {
   const body = BODY_BY_ID[position.body];
   const scenePosition = toScenePoint(position.positionAu);
   const nucleusRadius = getVisualRadius(body.radiusKm, highlighted, true);
@@ -242,11 +242,11 @@ function Comet({ highlighted, position }: { highlighted: boolean; position: Body
         <>
           <mesh>
             <sphereGeometry args={[nucleusRadius * 2.4, 24, 24]} />
-            <meshBasicMaterial color={body.color} opacity={0.14} transparent />
+            <meshBasicMaterial color={body.color} opacity={0.14} transparent depthWrite={false} />
           </mesh>
           <mesh rotation={[Math.PI / 2, 0, 0]}>
             <ringGeometry args={[nucleusRadius * 1.35, nucleusRadius * 1.65, 48]} />
-            <meshBasicMaterial color={body.color} opacity={0.85} transparent />
+            <meshBasicMaterial color={body.color} opacity={0.85} transparent depthWrite={false} />
           </mesh>
         </>
       ) : null}
@@ -288,7 +288,7 @@ function Comet({ highlighted, position }: { highlighted: boolean; position: Body
   );
 }
 
-function Planet({ highlighted, position }: { highlighted: boolean; position: BodyPosition }) {
+export function Planet({ highlighted, position }: { highlighted: boolean; position: BodyPosition }) {
   const body = BODY_BY_ID[position.body];
   const scenePosition = toScenePoint(position.positionAu);
   const visualRadius = getVisualRadius(body.radiusKm, highlighted, false);
@@ -317,11 +317,11 @@ function Planet({ highlighted, position }: { highlighted: boolean; position: Bod
         <>
           <mesh>
             <sphereGeometry args={[visualRadius * 2.4, 24, 24]} />
-            <meshBasicMaterial color={body.color} opacity={0.14} transparent />
+            <meshBasicMaterial color={body.color} opacity={0.14} transparent depthWrite={false} />
           </mesh>
           <mesh rotation={[Math.PI / 2, 0, 0]}>
             <ringGeometry args={[visualRadius * 1.35, visualRadius * 1.65, 48]} />
-            <meshBasicMaterial color={body.color} opacity={0.85} transparent />
+            <meshBasicMaterial color={body.color} opacity={0.85} transparent depthWrite={false} />
           </mesh>
         </>
       ) : null}

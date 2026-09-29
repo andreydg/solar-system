@@ -20,6 +20,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@react-three/test-renderer": "^9.1.1",
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
