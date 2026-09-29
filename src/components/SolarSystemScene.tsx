@@ -8,6 +8,7 @@ import { chunkScenePoints, buildOrbitTrailSegments, type SmallBodyTrajectory } f
 import { addDays } from "../lib/timeUtils";
 import CelestialSphere from "./CelestialSphere";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import { pairView } from "../lib/cameraViews";
 
 const AU_TO_SCENE_UNITS = 3.2;
 const ORBIT_SAMPLE_COUNT = 192;
@@ -362,23 +363,17 @@ export function SceneCamera({
 
     framedEvent.current = highlightedBodies;
 
-    const pointA = toScenePoint(first.positionAu);
-    const pointB = toScenePoint(second.positionAu);
-    const midpoint: [number, number, number] = [
-      (pointA[0] + pointB[0]) / 2,
-      (pointA[1] + pointB[1]) / 2,
-      (pointA[2] + pointB[2]) / 2,
-    ];
-    const spread = Math.hypot(
-      pointA[0] - pointB[0],
-      pointA[1] - pointB[1],
-      pointA[2] - pointB[2],
+    // Event bodies are drawn highlighted (enlarged); leave room for the bigger of the two.
+    const radius = Math.max(
+      ...highlightedBodies.map((body) => getVisualRadius(BODY_BY_ID[body].radiusKm, true, isComet(body))),
     );
-    const cameraHeight = Math.max(spread * 0.75, 10);
-    const cameraDepth = Math.max(spread * 0.65, 10);
+    const lens = (camera as THREE.PerspectiveCamera).isPerspectiveCamera
+      ? { fov: (camera as THREE.PerspectiveCamera).fov, aspect: (camera as THREE.PerspectiveCamera).aspect }
+      : { fov: 48, aspect: 1 };
+    const view = pairView(toScenePoint(first.positionAu), toScenePoint(second.positionAu), radius, lens);
 
-    controls.target.set(midpoint[0], midpoint[1], midpoint[2]);
-    camera.position.set(midpoint[0], midpoint[1] + cameraHeight, midpoint[2] + cameraDepth);
+    controls.target.copy(view.target);
+    camera.position.copy(view.position);
     controls.update();
   }, [camera, controls, highlightedBodies, positions]);
 
