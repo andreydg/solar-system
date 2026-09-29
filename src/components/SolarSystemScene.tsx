@@ -13,6 +13,8 @@ import { pairView } from "../lib/cameraViews";
 const AU_TO_SCENE_UNITS = 3.2;
 const ORBIT_SAMPLE_COUNT = 192;
 const TRAIL_EPOCH = new Date("2026-01-01T00:00:00Z");
+// How far out the user can zoom; framing a wide event pair can raise it (see SceneCamera).
+const MAX_CAMERA_DISTANCE = 220;
 
 const PLANET_TEXTURES: Record<string, string> = {
   mercury: "/textures/mercurymap.jpg",
@@ -343,17 +345,22 @@ export function SceneCamera({
   highlightedBodies: BodyId[];
   positions: BodyPosition[];
 }) {
-  const camera = useThree((state) => state.camera);
-  const controls = useThree((state) => state.controls) as OrbitControlsImpl | null;
+  // The framing adjusts the controls' limits, so it reads the live camera and controls from the
+  // store rather than mutating values captured during render; this subscription re-runs it once
+  // OrbitControls registers itself as the default controls.
+  const get = useThree((state) => state.get);
+  const hasControls = useThree((state) => state.controls !== null);
   // App recreates highlightedBodies for every loaded event, so the array doubles as the event's
   // identity. Framing once per event means playback moving the bodies afterwards leaves the
   // camera to the user.
   const framedEvent = useRef<BodyId[] | null>(null);
 
   useEffect(() => {
-    if (highlightedBodies.length !== 2 || !controls || framedEvent.current === highlightedBodies) {
+    if (highlightedBodies.length !== 2 || !hasControls || framedEvent.current === highlightedBodies) {
       return;
     }
+    const camera = get().camera;
+    const controls = get().controls as OrbitControlsImpl;
 
     const first = positions.find((position) => position.body === highlightedBodies[0]);
     const second = positions.find((position) => position.body === highlightedBodies[1]);
@@ -372,12 +379,17 @@ export function SceneCamera({
       : { fov: 48, aspect: 1 };
     const view = pairView(toScenePoint(first.positionAu), toScenePoint(second.positionAu), radius, lens);
 
+    // A wide pair on a narrow canvas can need the camera beyond the usual zoom-out limit. Raise the
+    // limit to fit this framing, or update() would pull the camera back in and crop a body.
+    controls.maxDistance = Math.max(MAX_CAMERA_DISTANCE, view.position.distanceTo(view.target));
     controls.target.copy(view.target);
     camera.position.copy(view.position);
     controls.update();
-  }, [camera, controls, highlightedBodies, positions]);
+  }, [get, hasControls, highlightedBodies, positions]);
 
-  return <OrbitControls makeDefault enableDamping dampingFactor={0.08} maxDistance={220} minDistance={4} />;
+  return (
+    <OrbitControls makeDefault enableDamping dampingFactor={0.08} maxDistance={MAX_CAMERA_DISTANCE} minDistance={4} />
+  );
 }
 
 function toScenePoint(positionAu: Vec3): [number, number, number] {
