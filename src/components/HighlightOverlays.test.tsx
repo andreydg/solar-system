@@ -6,9 +6,11 @@ import { Comet, Planet } from "./SolarSystemScene";
 
 vi.mock("@react-three/drei", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@react-three/drei")>()),
-  // Node has no image loading or DOM: hand bodies a blank texture and skip the HTML labels.
+  // Node has no image loading or DOM: hand bodies a blank texture and skip the HTML labels and
+  // pointer cursor.
   useTexture: () => new THREE.Texture(),
   Html: () => null,
+  useCursor: () => {},
 }));
 
 function transparentMaterials(root: THREE.Object3D) {
