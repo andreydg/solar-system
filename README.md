@@ -123,3 +123,10 @@ npm run build
 mvn -f backend/pom.xml test
 mvn -f backend/pom.xml package
 ```
+
+## Credits
+
+Planet, Sun, and moon surface textures (`public/textures/`) are the solar-system
+maps by **James Hastings-Trew — [Planet Pixel Emporium](https://planetpixelemporium.com/planets.html)**,
+used with credit per the author's usage terms. See
+[`public/textures/CREDITS.md`](public/textures/CREDITS.md).

@@ -4,6 +4,7 @@ import {
   type BodyId,
   type BodyPosition,
   type ClosestApproachResult,
+  type Vec3,
   distanceAu,
 } from "../domain/solarSystem";
 import { addDays, DAY_MS } from "../lib/timeUtils";
@@ -19,6 +20,7 @@ type AstronomyVector = {
 const astronomyApi = Astronomy as typeof Astronomy & {
   Body: Record<string, AstronomyBody>;
   HelioVector: (body: AstronomyBody, time: Date) => AstronomyVector;
+  RotationAxis: (body: AstronomyBody, time: Date) => { north: AstronomyVector };
 };
 
 const ASTRO_BODY_BY_ID: Partial<Record<BodyId, AstronomyBody>> = {
@@ -52,6 +54,21 @@ export function getBodyPosition(body: BodyId, time: Date): BodyPosition {
 
 export function getBodyPositions(bodies: BodyId[], time: Date): BodyPosition[] {
   return bodies.map((body) => getBodyPosition(body, time));
+}
+
+/**
+ * Unit vector along the body's IAU north pole, in the same J2000 equatorial frame as
+ * getBodyPosition. IAU "north" is the pole on the north side of the invariable plane, so
+ * retrograde rotators (Venus, Uranus) report the pole opposite their spin vector.
+ */
+export function getNorthPole(body: BodyId, time: Date): Vec3 | null {
+  const astroBody = ASTRO_BODY_BY_ID[body];
+  if (!astroBody) {
+    return null;
+  }
+
+  const { north } = astronomyApi.RotationAxis(astroBody, time);
+  return { x: north.x, y: north.y, z: north.z };
 }
 
 export function sampleTrajectory(
