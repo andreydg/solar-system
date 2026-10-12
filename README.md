@@ -298,6 +298,32 @@ whole group. Simulation state updates at most ten times/sec, pauses work in hidd
 tabs, and starts paused for reduced-motion users. Texture and hashed-asset HTTP
 caching are explicit; the runtime container runs as an unprivileged user.
 
+## Sharing and organic discovery
+
+Share view copies a versioned URL and also displays a selectable link if clipboard
+access is unavailable. It preserves UTC time, body visibility, search criteria and
+focused body, opens paused, and supports browser back/forward. It does not preserve
+an arbitrary camera rotation or assert that a displayed date is validated.
+Explain this date captures an on-demand snapshot, with a geometric Earth-view
+track for major planets. It does not recalculate that chart every animation frame.
+
+`npm run build` also pre-renders three human-written guides and a sitemap; robots
+and page/social metadata are served as real production resources. Guides load
+without JavaScript or any catalog request. Shared query URLs canonicalize to the
+home page, so they do not create thousands of thin indexed event pages.
+
+Before paid acquisition (operator checklist, not automated by this PR):
+
+1. Complete the index/schema migration and worker-trigger rollout above; verify
+   latency, 429/5xx rates, worker backlog age and Firestore cost at a capped load.
+2. After deployment, verify guide URLs and the sitemap in Search Console.
+3. Share a few genuinely useful examples with astronomy educators/clubs, asking
+   for feedback before broad outreach. Pair a retrograde sky track with its 3D
+   view rather than advertising precision the model does not provide.
+4. Measure guide-to-explorer visits and repeat usage using an explicitly approved,
+   privacy-conscious analytics setup. No analytics vendor, tracking cookie,
+   outbound promotion, or cloud resource is enabled by this code.
+
 ## Catalog rollback and retries
 
 After **any** rollback to an older writer, drain/stop that revision, rerun the

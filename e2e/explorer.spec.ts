@@ -342,3 +342,56 @@ test("manual trajectory retry clears the stale error while its new request is pe
   await expect(page.getByText(/Halley's path could not load/)).toHaveCount(0);
   release();
 });
+
+
+test("share links reopen paused with exact UTC state and restore browser history", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.getByLabel("Jump to date (UTC)").fill("2027-02-19T15:45");
+  await page.getByRole("combobox", { name: "Event type", exact: true }).selectOption("opposition");
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  const first = await page.getByLabel("Share link (date, bodies, and focus)").inputValue();
+  await page.getByLabel("Jump to date (UTC)").fill("2028-05-01T12:30");
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.goBack();
+  await expect(page.getByLabel("Jump to date (UTC)")).toHaveValue("2027-02-19T15:45");
+  await page.goto(first);
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Event type", exact: true })).toHaveValue("opposition");
+  await page.getByRole("button", { name: "Explain this date", exact: true }).click();
+  await expect(page.getByRole("img", { name: /Earth-view sky track/ })).toBeVisible();
+});
+
+test("real packaged guides, robots, and sitemap are readable without JavaScript", async ({ browser, request }) => {
+  const robots = await request.get("/robots.txt");
+  expect(robots.ok()).toBeTruthy();
+  expect(await robots.text()).toContain("Sitemap: https://solar.andreyg.com/sitemap.xml");
+  const sitemap = await request.get("/sitemap.xml");
+  expect(sitemap.ok()).toBeTruthy();
+  for (const name of ["retrograde", "opposition", "elongation"]) {
+    expect(await sitemap.text()).toContain("/learn/" + name + ".html");
+    const guide = await request.get("/learn/" + name + ".html");
+    expect(guide.ok()).toBeTruthy();
+    const html = await guide.text();
+    expect(html).toContain('rel="canonical"');
+    expect(html).toContain('property="og:description"');
+    expect(html).not.toContain("<script");
+  }
+  const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  await page.goto("http://127.0.0.1:18080/learn/retrograde.html");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("move backward");
+  await expect(page.getByRole("link", { name: "Open the example in 3D" })).toBeVisible();
+  await context.close();
+});
+
+test("mobile shared view shows explanation and reduced-motion starts paused", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Explain this date", exact: true }).click();
+  await expect(page.getByRole("img", { name: /Earth-view sky track/ })).toBeVisible();
+  await page.getByRole("button", { name: "Close explanation", exact: true }).click();
+  await expect(page.getByRole("img", { name: /Earth-view sky track/ })).toHaveCount(0);
+});

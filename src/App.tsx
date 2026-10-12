@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { defaultBodies, readSharedView, shareUrl } from "./lib/sharedView";
 import SceneBoundary from "./components/SceneBoundary";
 import { canUseBrowserFallback } from "./lib/http";
 import ControlPanel from "./components/ControlPanel";
@@ -18,16 +19,16 @@ import { interpolateTrajectory } from "./lib/smallBodyTrajectory";
 import { findNextEvent, findPreviousEvent, SEARCH_HORIZON_YEARS, type CatalogEventResult } from "./lib/eventCatalogApi";
 import { addDays, addYears } from "./lib/timeUtils";
 
-const INITIAL_DATE = new Date();
-const DEFAULT_VISIBLE_BODIES = BODIES.filter((body) => !isSmallBody(body.id)).map((body) => body.id);
 
 export default function App() {
-  const [isPlaying, setIsPlaying] = useState(() => !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  const [initialView] = useState(() => readSharedView(window.location.search));
+  const [initialTime] = useState(() => initialView?.time ?? new Date());
+  const [isPlaying, setIsPlaying] = useState(() => !initialView && !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [speedDaysPerSecond, setSpeedDaysPerSecond] = useState(10);
-  const [visibleBodies, setVisibleBodies] = useState<BodyId[]>(DEFAULT_VISIBLE_BODIES);
-  const [eventType, setEventType] = useState<CatalogEventType>("closestApproach");
-  const [eventBodyA, setEventBodyA] = useState<BodyId>("earth");
-  const [eventBodyB, setEventBodyB] = useState<BodyId>("mars");
+  const [visibleBodies, setVisibleBodies] = useState<BodyId[]>(initialView?.visibleBodies ?? defaultBodies);
+  const [eventType, setEventType] = useState<CatalogEventType>(initialView?.eventType ?? "closestApproach");
+  const [eventBodyA, setEventBodyA] = useState<BodyId>(initialView?.bodyA ?? "earth");
+  const [eventBodyB, setEventBodyB] = useState<BodyId>(initialView?.bodyB ?? "mars");
   const [eventResult, setEventResult] = useState<
     (ClosestApproachResult & { angleDeg: null; magnitude: null; type: "closestApproach" }) | CatalogEventResult | null
   >(null);
@@ -35,15 +36,37 @@ export default function App() {
   const [eventStatus, setEventStatus] = useState<string | null>(null);
   const { trajectories: smallBodyTrajectories, error: trajectoryError } = useSmallBodyTrajectories(visibleBodies);
   // The body the camera is following, if any; null is the Sun-centred overview.
-  const [focusedBody, setFocusedBody] = useState<BodyId | null>(null);
+  const [focusedBody, setFocusedBody] = useState<BodyId | null>(initialView?.focus ?? null);
   const searchController = useRef<AbortController | null>(null);
   useEffect(() => () => searchController.current?.abort(), []);
   const cancelSearch = () => {
     searchController.current?.abort();
     setIsSearching(false);
   };
-  const { currentTime, setCurrentTime, timeRef, pauseClock } = useSimulationClock(INITIAL_DATE, isPlaying, speedDaysPerSecond);
+  const { currentTime, setCurrentTime, timeRef, pauseClock } = useSimulationClock(initialTime, isPlaying, speedDaysPerSecond);
   const pausePlayback = () => { pauseClock(); setIsPlaying(false); };
+  const [sharedLink, setSharedLink] = useState<string | null>(null);
+  const shareView = async () => {
+    const url = shareUrl({ time: currentTime, visibleBodies, eventType, bodyA: eventBodyA, bodyB: eventBodyB, focus: focusedBody }, window.location.origin);
+    setIsPlaying(false);
+    window.history.pushState(null, "", url);
+    setSharedLink(url);
+    try { await navigator.clipboard.writeText(url); } catch { /* selectable link remains available */ }
+  };
+  useEffect(() => {
+    const restore = () => {
+      const view = readSharedView(window.location.search);
+      searchController.current?.abort();
+      setIsSearching(false); setIsPlaying(false); setEventResult(null); setEventStatus(null); setSharedLink(null);
+      setCurrentTime(view?.time ?? new Date());
+      setVisibleBodies(view?.visibleBodies ?? defaultBodies);
+      setEventType(view?.eventType ?? "closestApproach");
+      setEventBodyA(view?.bodyA ?? "earth"); setEventBodyB(view?.bodyB ?? "mars");
+      setFocusedBody(view?.focus ?? null);
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
 
   const eventPairIsValid = useMemo(
     () => isValidEventPair(eventType, eventBodyA, eventBodyB),
@@ -290,6 +313,8 @@ export default function App() {
 
       <ControlPanel
         currentTime={currentTime}
+        onShare={() => void shareView()}
+        sharedLink={sharedLink}
         eventPairIsValid={eventPairIsValid}
         eventResult={eventResult}
         eventStatus={eventStatus}
