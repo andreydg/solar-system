@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
@@ -125,7 +126,14 @@ public class JplHorizonsClient {
     }
 
     private String fetchOnce(BodyId body, Instant contextTime, URI uri) {
-        concurrencyLimiter.acquireUninterruptibly();
+        try {
+            if (!concurrencyLimiter.tryAcquire(5, TimeUnit.SECONDS)) {
+                throw new JplHorizonsException("JPL request capacity exceeded", true);
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new JplHorizonsException("Interrupted waiting for JPL capacity", exception, true);
+        }
         try {
             String response = restClient.get()
                 .uri(uri)

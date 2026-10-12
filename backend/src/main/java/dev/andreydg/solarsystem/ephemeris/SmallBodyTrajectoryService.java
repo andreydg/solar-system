@@ -29,6 +29,9 @@ public class SmallBodyTrajectoryService {
     private final TrajectoryCacheProperties trajectoryCacheProperties;
     private final ConcurrentMap<BodyId, List<TrajectorySample>> cache = new ConcurrentHashMap<>();
 
+    @org.springframework.beans.factory.annotation.Value("${solar-system.trajectories.prewarm-enabled:true}")
+    private boolean prewarmEnabled = true;
+
     public SmallBodyTrajectoryService(
         JplEphemerisProvider jplEphemerisProvider,
         TrajectoryFileStore trajectoryFileStore,
@@ -153,6 +156,7 @@ public class SmallBodyTrajectoryService {
     @Async
     @EventListener(ApplicationReadyEvent.class)
     public void prewarmTrajectories() {
+        if (!prewarmEnabled) return;
         Arrays.stream(BodyId.values())
             .filter(BodyId::isSmallBody)
             .forEach(body -> {

@@ -20,12 +20,32 @@ import org.springframework.web.servlet.resource.ResourceHttpRequestHandler;
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
         "solar-system.storage=in-memory",
+        "solar-system.admin-token=test-token-that-is-at-least-32-chars",
         "solar-system.jpl.async-validation-enabled=false",
         "solar-system.trajectories.cache-dir=../data/trajectories",
         "solar-system.trajectories.refresh-from-jpl=false"
     }
 )
+@org.springframework.context.annotation.Import(OfflineEphemerisConfiguration.class)
 class SpaForwardingTests {
+
+    @Test
+    void missingCrawlerResourcesAreNotServerErrors() {
+        for (String path : new String[] {"/robots.txt", "/sitemap.xml"}) {
+            assertThat(client().get().uri(path).retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(404);
+        }
+    }
+
+    @Test
+    void validationGetCannotMutateAndMalformedInputIsBadRequest() {
+        var legacyGet = client().get().uri("/api/validation/jpl/event/nonexistent")
+            .header("Authorization", "Bearer test-token-that-is-at-least-32-chars")
+            .retrieve().toBodilessEntity();
+        assertThat(legacyGet.getStatusCode().value()).isEqualTo(405);
+        assertThat(client().post().uri("/api/events/generate").contentType(MediaType.APPLICATION_JSON)
+            .body("{bad json").retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(400);
+        assertThat(client().get().uri("/api/events").retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(400);
+    }
 
     @LocalServerPort
     private int port;
@@ -60,9 +80,7 @@ class SpaForwardingTests {
         ResponseEntity<String> response =
             client().get().uri("/definitely-not-a-real-asset.js").retrieve().toEntity(String.class);
 
-        assertThat(response.getStatusCode().is2xxSuccessful())
-            .as("asset-like path should not resolve to the SPA shell, got %s", response.getStatusCode())
-            .isFalse();
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
         if (response.getBody() != null) {
             assertThat(response.getBody()).doesNotContain("<div id=\"root\">");
         }
@@ -93,7 +111,7 @@ class SpaForwardingTests {
         // not return the SPA shell (the old first-segment regex forwarded these).
         ResponseEntity<String> response =
             client().get().uri("/textures/does-not-exist.png").retrieve().toEntity(String.class);
-        assertThat(response.getStatusCode().is2xxSuccessful()).isFalse();
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
         if (response.getBody() != null) {
             assertThat(response.getBody()).doesNotContain("<div id=\"root\">");
         }
@@ -123,7 +141,7 @@ class SpaForwardingTests {
         // An unmatched /api/** path must not resolve to the SPA shell.
         ResponseEntity<String> response =
             client().get().uri("/api/no-such-endpoint").retrieve().toEntity(String.class);
-        assertThat(response.getStatusCode().is2xxSuccessful()).isFalse();
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
         if (response.getBody() != null) {
             assertThat(response.getBody()).doesNotContain("<div id=\"root\">");
         }

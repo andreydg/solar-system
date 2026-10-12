@@ -107,7 +107,7 @@ The visualization intentionally separates physical data from display scale:
   oppositions, or conjunctions for a pair/range.
 - `GET /api/catalog/options` lists supported event types and major bodies.
 - `GET /api/validation/jpl/position` fetches a Sun-centered vector from JPL Horizons.
-- `GET /api/validation/jpl/event/{eventId}` validates a cataloged event against
+- `POST /api/validation/jpl/event/{eventId}` validates a cataloged event against
   JPL vectors and stores corrected/validated metadata where supported.
 
 Generated events are stored immediately as provisional catalog entries. When
@@ -117,6 +117,24 @@ responses derive display fields by preferring validated values when present, whi
 preserving the original computed values for traceability.
 
 ## Verification
+
+### API safety and operations
+
+Generation/query windows must be increasing and at most 31 years; dates are bounded
+to 1600–3000. Generation has a cooperative 30-second calculation budget. Expensive
+HTTP work is limited to two concurrent requests and 60 admissions/minute **per
+instance**. Deploy an edge quota and cap Cloud Run instances for a global cost
+budget; this application limit intentionally does not trust client IP headers.
+
+Administrative `/api/validation/**` endpoints are disabled unless
+`SOLAR_SYSTEM_ADMIN_TOKEN` contains at least 32 characters. Send it as a Bearer
+token over HTTPS, never in a URL or frontend configuration. Event revalidation is
+now POST, not GET. Store this secret in Secret Manager and rotate it as needed.
+Do not expose the token in browser clients. Public catalog reads require no login.
+
+Normal Spring tests inject explicitly synthetic small-body orbits and a JPL client
+that throws on unexpected calls. These test catalog behavior, not ephemeris
+accuracy; the opt-in live integration profile remains separate.
 
 ```bash
 npm run build

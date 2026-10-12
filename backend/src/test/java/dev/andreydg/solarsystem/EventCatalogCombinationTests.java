@@ -25,6 +25,7 @@ import org.springframework.boot.test.context.SpringBootTest;
     "solar-system.trajectories.cache-dir=../data/trajectories",
     "solar-system.trajectories.refresh-from-jpl=false"
 })
+@org.springframework.context.annotation.Import(OfflineEphemerisConfiguration.class)
 class EventCatalogCombinationTests {
     private static final Instant SHORT_RANGE_FROM = Instant.parse("2026-01-01T00:00:00Z");
     private static final Instant SHORT_RANGE_TO = Instant.parse("2027-12-31T00:00:00Z");
