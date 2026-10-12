@@ -45,7 +45,7 @@ public final class FirestoreIndexMigration {
         }
         if (apply && malformed == 0) {
             firestore.collection("_catalogMetadata").document(collection)
-                .set(Map.of("indexedQueriesReady", true, "readSchemaVersion", 1)).get();
+                .set(Map.of("indexedQueriesReady", true, "readSchemaVersion", 2)).get();
         }
         return new Result(scanned, changed, malformed, apply && malformed == 0);
     }

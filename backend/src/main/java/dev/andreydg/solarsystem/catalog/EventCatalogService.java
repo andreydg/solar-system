@@ -100,11 +100,13 @@ public class EventCatalogService {
             throw new IllegalArgumentException("Too many events; choose a smaller date window");
         }
 
-        List<CatalogEvent> stored = repository.upsertAll(validEvents);
+        var stored = repository.upsertAll(validEvents);
 
         if (validEvents.isEmpty()) emptyWindows.remember(window);
 
-        return stored;
+        return stored.stream()
+            .filter(event -> event.validationStatus() != ValidationStatus.FAILED)
+            .toList();
     }
 
     public List<CatalogEvent> listValidatedEvents(
@@ -771,13 +773,7 @@ public class EventCatalogService {
     }
 
     private boolean isStoredEventValid(CatalogEvent event) {
-        if (event.type() != EventType.TRANSIT) {
-            return true;
-        }
-
-        BodyId target = targetBody(BodyPair.of(event.bodyA(), event.bodyB()));
-        return isInferiorConjunction(target, event.computedTimeUtc())
-            && sampleElongation(target, event.computedTimeUtc()).elongationDeg() <= TRANSIT_ELONGATION_DEG;
+        return event.algorithmVersion() == CatalogEvent.CURRENT_ALGORITHM_VERSION;
     }
 
     private boolean isInferiorConjunction(BodyId target, Instant time) {
@@ -892,7 +888,7 @@ public class EventCatalogService {
     }
 
     private static String deterministicId(EventType type, BodyId bodyA, BodyId bodyB, Instant time) {
-        return "%s_%s_%s_%s".formatted(
+        return ("v" + CatalogEvent.CURRENT_ALGORITHM_VERSION + "_%s_%s_%s_%s").formatted(
             type.apiValue(),
             bodyA.apiValue(),
             bodyB.apiValue(),

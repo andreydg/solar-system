@@ -18,6 +18,7 @@ public final class FirestoreValidationMigration {
             var documents = query.get().get().getDocuments();
             if (documents.isEmpty()) return added;
             for (var event : documents) {
+                if (!Long.valueOf(dev.andreydg.solarsystem.catalog.CatalogEvent.CURRENT_ALGORITHM_VERSION).equals(event.getLong("algorithmVersion"))) continue;
                 if (ValidationStatus.fromStoredValue(event.get("validationStatus")) != ValidationStatus.PENDING) continue;
                 boolean changed = firestore.runTransaction(tx -> {
                     var job = firestore.collection(collection + "-validation").document(event.getId());

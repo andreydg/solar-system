@@ -26,6 +26,25 @@ class FirestoreCatalogTests {
     }
     @AfterEach void close() throws Exception { if (firestore != null) firestore.close(); }
 
+    @Test void obsoleteOppositionRecordsRemainArchivedButCannotLeakIntoCurrentSearches() throws Exception {
+        var old = new HashMap<>(FirestoreEventCatalogRepository.toDocument(event("old-polluted-opposition", TIME, BodyId.MARS)));
+        old.remove("algorithmVersion");
+        old.put("computedAngleDeg", 0.0);
+        firestore.collection(collection).document("old-polluted-opposition").set(old).get();
+        repository.upsert(event("current", TIME, BodyId.MARS));
+        new FirestoreIndexMigration(firestore, collection).run(true);
+        assertThat(repository.search(query(false, 10, null)).events()).extracting(CatalogEvent::id).containsExactly("current");
+        assertThat(repository.findById("old-polluted-opposition")).isPresent();
+        assertThat(new FirestoreValidationMigration(firestore, collection).run(true)).isZero();
+    }
+
+    @Test void regenerationDoesNotReturnARejectedEventAsFreshProvisionalData() throws Exception {
+        var rejected = event("rejected", TIME, BodyId.MARS).failed("Geometry rejected");
+        repository.upsert(rejected);
+        assertThat(repository.upsertAll(List.of(rejected.pending())).getFirst().validationStatus()).isEqualTo(ValidationStatus.FAILED);
+        assertThat(firestore.collection(collection + "-validation").get().get().size()).isZero();
+    }
+
     @Test void durableJobsSurviveRepositoryRecreationAndFenceExpiredWorkers() throws Exception {
         var event = event("pending", TIME, BodyId.MARS).pending();
         repository.upsertAll(List.of(event));
@@ -112,7 +131,7 @@ class FirestoreCatalogTests {
         repository.upsert(event("c", TIME, BodyId.MARS));
         assertThat(new FirestoreIndexMigration(firestore, collection).run(true).ready()).isFalse();
         // Simulate corruption after an earlier successful activation.
-        firestore.collection("_catalogMetadata").document(collection).set(Map.of("indexedQueriesReady", true)).get();
+        firestore.collection("_catalogMetadata").document(collection).set(Map.of("indexedQueriesReady", true, "readSchemaVersion", 2)).get();
         var first = repository.search(query(false, 2, null));
         assertThat(first.events()).extracting(CatalogEvent::id).containsExactly("a");
         assertThat(first.nextCursor()).isNotNull();

@@ -26,7 +26,9 @@ describe("formatters", () => {
   describe("formatSource", () => {
     it("maps known source codes to short labels", () => {
       expect(formatSource("JPL_HORIZONS")).toBe("JPL");
-      expect(formatSource("VSOP87A_APPROX")).toBe("VSOP87A");
+      expect(formatSource("VSOP87A_APPROX")).toBe("Keplerian approximation");
+      expect(formatSource("JPL_GEOMETRY_MODEL_MAGNITUDE")).toBe("JPL geometry + modeled brightness");
+      expect(formatSource("JPL_TRAJECTORY_APPROX")).toContain("orbit repeated");
     });
 
     it("humanizes unknown sources by replacing underscores", () => {

@@ -100,9 +100,9 @@ export async function getValidatedEvents(query: ValidatedEventQuery = {}): Promi
 }
 
 export const SEARCH_HORIZON_YEARS = 1000;
+export const CATALOG_MIN_TIME = new Date("1600-01-01T00:00:00Z");
+export const CATALOG_MAX_TIME = new Date("2999-12-31T23:59:59Z");
 const GENERATE_WINDOW_YEARS = 25;
-const MIN_TIME = new Date("1600-01-01T00:00:00Z");
-const MAX_TIME = new Date("2999-12-31T23:59:59.999Z");
 
 export function isJplSource(source: string | null | undefined) {
   return source === "JPL_HORIZONS";
@@ -114,8 +114,8 @@ export async function findNextEvent(
   bodyB: BodyId,
   after: Date,
 ): Promise<CatalogEventResult | null> {
-  const absoluteEnd = minDate(addYears(after, SEARCH_HORIZON_YEARS), MAX_TIME);
-  let windowStart = maxDate(after, MIN_TIME);
+  const absoluteEnd = minDate(addYears(after, SEARCH_HORIZON_YEARS), CATALOG_MAX_TIME);
+  let windowStart = maxDate(after, CATALOG_MIN_TIME);
 
   while (windowStart < absoluteEnd) {
     const windowEnd = minDate(addYears(windowStart, GENERATE_WINDOW_YEARS), absoluteEnd);
@@ -142,8 +142,8 @@ export async function findPreviousEvent(
   bodyB: BodyId,
   before: Date,
 ): Promise<CatalogEventResult | null> {
-  const absoluteStart = maxDate(addYears(before, -SEARCH_HORIZON_YEARS), MIN_TIME);
-  let windowEnd = minDate(before, MAX_TIME);
+  const absoluteStart = maxDate(addYears(before, -SEARCH_HORIZON_YEARS), CATALOG_MIN_TIME);
+  let windowEnd = minDate(before, CATALOG_MAX_TIME);
 
   while (windowEnd > absoluteStart) {
     const windowStart = maxDate(addYears(windowEnd, -GENERATE_WINDOW_YEARS), absoluteStart);

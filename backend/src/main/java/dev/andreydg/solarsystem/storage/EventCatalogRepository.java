@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface EventCatalogRepository {
-    /** Create missing events without overwriting existing validation; return stored records. */
+    /** Insert generated events and jobs atomically; return existing records instead of overwriting them. */
     List<CatalogEvent> upsertAll(List<CatalogEvent> events);
 
     Optional<CatalogEvent> findById(String id);

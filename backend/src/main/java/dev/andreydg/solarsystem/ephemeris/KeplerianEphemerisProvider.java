@@ -8,15 +8,19 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 @Component
-public class Vsop87aEphemerisProvider implements EphemerisProvider {
+public class KeplerianEphemerisProvider implements EphemerisProvider {
     private static final Instant J2000 = Instant.parse("2000-01-01T12:00:00Z");
     private static final double DAYS_PER_JULIAN_CENTURY = 36525.0;
     private static final Map<BodyId, OrbitalElements> ELEMENTS = createElements();
+    private static final Map<BodyId, OrbitalElements> LONG_ELEMENTS = createLongElements();
 
     @Override
     public Vector3Au heliocentricPosition(BodyId body, Instant timeUtc) {
-        OrbitalElements elements = ELEMENTS.get(body).at(julianCenturiesSinceJ2000(timeUtc));
-        double meanAnomaly = normalizeRadians(Math.toRadians(elements.meanLongitudeDeg - elements.longitudePerihelionDeg));
+        double centuries = julianCenturiesSinceJ2000(timeUtc);
+        boolean longRange = centuries < -2 || centuries > 0.5;
+        OrbitalElements elements = (longRange ? LONG_ELEMENTS : ELEMENTS).get(body).at(centuries);
+        double meanAnomaly = normalizeRadians(Math.toRadians(elements.meanLongitudeDeg - elements.longitudePerihelionDeg
+            + (longRange ? longRangeCorrection(body, centuries) : 0)));
         double eccentricAnomaly = solveKepler(meanAnomaly, elements.eccentricity);
 
         double xPrime = elements.semiMajorAxisAu * (Math.cos(eccentricAnomaly) - elements.eccentricity);
@@ -46,7 +50,7 @@ public class Vsop87aEphemerisProvider implements EphemerisProvider {
 
     @Override
     public String source() {
-        return "VSOP87A_APPROX";
+        return "KEPLERIAN_APPROX";
     }
 
     private static double julianCenturiesSinceJ2000(Instant timeUtc) {
@@ -143,6 +147,29 @@ public class Vsop87aEphemerisProvider implements EphemerisProvider {
             131.78422574, -0.00508664
         ));
         return Map.copyOf(elements);
+    }
+
+    // JPL approximate positions, Tables 2a/2b (valid -3000..3000; API supports 1600..2999).
+    // https://ssd.jpl.nasa.gov/planets/approx_pos.html — these are NOT a full VSOP87 series.
+    private static Map<BodyId, OrbitalElements> createLongElements() {
+        return Map.of(
+            BodyId.MERCURY, new OrbitalElements(0.38709843,0, 0.20563661,0.00002123, 7.00559432,-0.00590158, 252.25166724,149472.67486623, 77.45771895,0.15940013, 48.33961819,-0.12214182),
+            BodyId.VENUS, new OrbitalElements(0.72332102,-0.00000026, 0.00676399,-0.00005107, 3.39777545,0.00043494, 181.97970850,58517.81560260, 131.76755713,0.05679648, 76.67261496,-0.27274174),
+            BodyId.EARTH, new OrbitalElements(1.00000018,-0.00000003, 0.01673163,-0.00003661, -0.00054346,-0.01337178, 100.46691572,35999.37306329, 102.93005885,0.31795260, -5.11260389,-0.24123856),
+            BodyId.MARS, new OrbitalElements(1.52371243,0.00000097, 0.09336511,0.00009149, 1.85181869,-0.00724757, -4.56813164,19140.29934243, -23.91744784,0.45223625, 49.71320984,-0.26852431),
+            BodyId.JUPITER, new OrbitalElements(5.20248019,-0.00002864, 0.04853590,0.00018026, 1.29861416,-0.00322699, 34.33479152,3034.90371757, 14.27495244,0.18199196, 100.29282654,0.13024619),
+            BodyId.SATURN, new OrbitalElements(9.54149883,-0.00003065, 0.05550825,-0.00032044, 2.49424102,0.00451969, 50.07571329,1222.11494724, 92.86136063,0.54179478, 113.63998702,-0.25015002),
+            BodyId.URANUS, new OrbitalElements(19.18797948,-0.00020455, 0.04685740,-0.00001550, 0.77298127,-0.00180155, 314.20276625,428.49512595, 172.43404441,0.09266985, 73.96250215,0.05739699),
+            BodyId.NEPTUNE, new OrbitalElements(30.06952752,0.00006447, 0.00895439,0.00000818, 1.77005520,0.00022400, 304.22289287,218.46515314, 46.68158724,0.01009938, 131.78635853,-0.00606302));
+    }
+    private static double longRangeCorrection(BodyId body, double t) {
+        return switch (body) {
+            case JUPITER -> -0.00012452 * t * t + 0.06064060 * Math.cos(Math.toRadians(38.35125 * t)) - 0.35635438 * Math.sin(Math.toRadians(38.35125 * t));
+            case SATURN -> 0.00025899 * t * t - 0.13434469 * Math.cos(Math.toRadians(38.35125 * t)) + 0.87320147 * Math.sin(Math.toRadians(38.35125 * t));
+            case URANUS -> 0.00058331 * t * t - 0.97731848 * Math.cos(Math.toRadians(7.67025 * t)) + 0.17689245 * Math.sin(Math.toRadians(7.67025 * t));
+            case NEPTUNE -> -0.00041348 * t * t + 0.68346318 * Math.cos(Math.toRadians(7.67025 * t)) - 0.10162547 * Math.sin(Math.toRadians(7.67025 * t));
+            default -> 0;
+        };
     }
 
     private record OrbitalElements(

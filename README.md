@@ -205,7 +205,7 @@ hosts: `FIRESTORE_EMULATOR_HOST=127.0.0.1:18085 mvn -f backend/pom.xml test
 ### API safety and operations
 
 Generation/query windows must be increasing and at most 31 years; dates are bounded
-to 1600–3000. Generation has a cooperative 30-second calculation budget. Expensive
+to 1600–2999. Generation has a cooperative 30-second calculation budget. Expensive
 planet-only generation is limited to two concurrent requests, independently of 32 catalog-read,
 16 trajectory, and eight JPL-bound slots (including small-body generation). Only admitted requests consume the per-client
 minute quotas (60 generation / 120 JPL-bound / 600 reads); a high 6,000/minute
@@ -248,7 +248,33 @@ mvn -f backend/pom.xml test
 mvn -f backend/pom.xml package
 ```
 
-### Catalog rollback and retries
+## Scientific provenance and catalog version 2
+
+Candidates are approximate, not automatically JPL-validated. Planet candidates use
+JPL's [approximate Keplerian elements](https://ssd.jpl.nasa.gov/planets/approx_pos.html)
+(Table 1 in 1800–2050; Table 2 and outer-planet corrections outside that interval).
+Small-body candidates use interpolated, periodically repeated trajectories. Neither
+method is an observation-grade ephemeris.
+
+Validation requires a bracketed crossing or interior extremum in fresh geometric
+Horizons vectors, then a 5-minute refinement grid. That grid is **not an accuracy
+guarantee**. Transit acceptance also checks apparent disk overlap and foreground
+distance. Brightness remains a photometric model using JPL geometry, not a JPL
+measurement. These are geocentric/geometric events, not local visibility forecasts;
+atmosphere, observer location, light-time, and historical time-scale differences
+are outside their scope. Recorded Horizons fixtures test acceptance offline.
+
+This release requires the updated composite indexes and **read schema version 2**.
+Follow the migration runbook above again: deploy/wait for indexes, dry-run, then
+apply with old writers drained. Legacy documents without an algorithm version are
+retained as version 0, but excluded from current searches. New generation uses
+version-prefixed IDs, so old incorrect validations cannot suppress corrected events.
+Only current-version pending events receive backfilled jobs; obsolete queued jobs
+are abandoned without promoting their results. No historical records are deleted.
+
+## Texture credits
+
+## Catalog rollback and retries
 
 After **any** rollback to an older writer, drain/stop that revision, rerun the
 index migration with `--solar-system.migration.apply=true`, and verify the

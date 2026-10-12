@@ -70,6 +70,7 @@ public class ValidationWorker {
             var found = catalog.findById(lease.eventId());
             if (found.isEmpty()) return abandon(lease, "Catalog event missing");
             event = found.get();
+            if (event.algorithmVersion() != CatalogEvent.CURRENT_ALGORITHM_VERSION) return abandon(lease, "Obsolete algorithm; regenerate event");
         } catch (EventCatalogStorageException failure) {
             return retry(lease, "Temporary catalog read failure");
         } catch (RuntimeException failure) {

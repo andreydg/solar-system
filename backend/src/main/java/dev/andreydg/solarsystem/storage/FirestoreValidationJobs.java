@@ -145,6 +145,9 @@ public class FirestoreValidationJobs implements ValidationJobs {
                 var eventRef = firestore.collection(collection).document(id);
                 var docs = tx.getAll(eventRef, job(id)).get();
                 if (!docs.get(0).exists()) throw new IllegalArgumentException("Catalog event not found");
+                if (fromDocument(docs.get(0).getData()).algorithmVersion() != CatalogEvent.CURRENT_ALGORITHM_VERSION) {
+                    throw new IllegalArgumentException("Obsolete catalog algorithm; regenerate the event instead");
+                }
                 var prior = docs.get(1);
                 if (prior.exists() && "leased".equals(prior.getString("state"))
                     && instant(prior.getTimestamp("availableAt")).isAfter(now)) {

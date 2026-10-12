@@ -31,12 +31,14 @@ public class InMemoryEventCatalogRepository implements EventCatalogRepository, V
 
     @Override
     public synchronized List<CatalogEvent> upsertAll(List<CatalogEvent> events) {
+        var stored = new java.util.ArrayList<CatalogEvent>();
         for (var event : events) {
             if (this.events.putIfAbsent(event.id(), event) == null && event.validationStatus() == ValidationStatus.PENDING) {
                 jobs.put(event.id(), new Job(0, Instant.EPOCH, null));
             }
+            stored.add(this.events.get(event.id()));
         }
-        return events.stream().map(event -> this.events.get(event.id())).toList();
+        return List.copyOf(stored);
     }
 
     @Override
@@ -102,6 +104,7 @@ public class InMemoryEventCatalogRepository implements EventCatalogRepository, V
     @Override public synchronized void enqueue(String id, Instant now) {
         var event = events.get(id);
         if (event == null) throw new IllegalArgumentException("Catalog event not found");
+        if (event.algorithmVersion() != CatalogEvent.CURRENT_ALGORITHM_VERSION) throw new IllegalArgumentException("Obsolete catalog algorithm; regenerate the event instead");
         if (activeLease != null && activeLease.eventId().equals(id) && leaseUntil.isAfter(now)) {
             throw new IllegalArgumentException("Validation is already running");
         }

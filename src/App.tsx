@@ -15,7 +15,7 @@ import {
 import { findClosestApproach, getBodyPositions } from "./lib/ephemeris";
 import { getBackendBodyPositions } from "./lib/ephemerisApi";
 import { interpolateTrajectory, loadSmallBodyTrajectoriesWithRetry, type SmallBodyTrajectory } from "./lib/smallBodyTrajectory";
-import { findNextEvent, findPreviousEvent, isJplSource, SEARCH_HORIZON_YEARS, type CatalogEventResult } from "./lib/eventCatalogApi";
+import { findNextEvent, findPreviousEvent, SEARCH_HORIZON_YEARS, type CatalogEventResult } from "./lib/eventCatalogApi";
 import { addDays, addYears } from "./lib/timeUtils";
 
 const INITIAL_DATE = new Date();
@@ -290,7 +290,7 @@ export default function App() {
       setEventResult(result);
       setFocusedBody(null); // the camera frames the event instead
       setEventStatus(
-        result.validationStatus === "validated" || isJplSource(result.source) || isJplSource(result.computedSource)
+        result.validationStatus === "validated"
           ? "Loaded event."
           : "Loaded provisional event.",
       );

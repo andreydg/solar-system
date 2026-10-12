@@ -26,7 +26,12 @@ export function formatSource(source: string): string {
     case "JPL_HORIZONS":
       return "JPL";
     case "VSOP87A_APPROX":
-      return "VSOP87A";
+    case "KEPLERIAN_APPROX":
+      return "Keplerian approximation";
+    case "JPL_TRAJECTORY_APPROX":
+      return "JPL trajectory approximation (orbit repeated outside sampled dates)";
+    case "JPL_GEOMETRY_MODEL_MAGNITUDE":
+      return "JPL geometry + modeled brightness";
     default:
       return source.replace(/_/g, " ");
   }

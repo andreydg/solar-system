@@ -61,6 +61,10 @@ class JplHorizonsClientRetryTests {
         fixture.server()
             .expect(ExpectedCount.once(), requestTo(Matchers.allOf(
                 Matchers.containsString("REF_SYSTEM=%27ICRF%27"),
+                Matchers.containsString("TIME_TYPE=%27UT%27"),
+                Matchers.containsString("TIME_DIGITS=%27FRACSEC%27"),
+                Matchers.containsString("CAL_TYPE=%27GREGORIAN%27"),
+                Matchers.containsString("VEC_CORR=%27NONE%27"),
                 Matchers.containsString("REF_PLANE=%27ECLIPTIC%27"))))
             .andRespond(withSuccess(VALID_BODY, MediaType.TEXT_PLAIN));
 
