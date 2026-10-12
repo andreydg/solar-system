@@ -12,9 +12,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class JplValidationController {
     private final JplValidationService validationService;
+    private final dev.andreydg.solarsystem.catalog.ValidationJobs jobs;
+    private final dev.andreydg.solarsystem.jpl.ValidationWorker worker;
 
-    public JplValidationController(JplValidationService validationService) {
+    public JplValidationController(JplValidationService validationService, dev.andreydg.solarsystem.catalog.ValidationJobs jobs,
+        dev.andreydg.solarsystem.jpl.ValidationWorker worker) {
         this.validationService = validationService;
+        this.jobs = jobs;
+        this.worker = worker;
     }
 
     @GetMapping("/api/validation/jpl/position")
@@ -27,7 +32,13 @@ public class JplValidationController {
     }
 
     @PostMapping("/api/validation/jpl/event/{eventId}")
-    public EventDto validateEvent(@PathVariable String eventId) {
-        return EventDto.from(validationService.validateEvent(eventId));
+    public org.springframework.http.ResponseEntity<java.util.Map<String, String>> validateEvent(@PathVariable String eventId) {
+        jobs.enqueue(eventId, Instant.now());
+        return org.springframework.http.ResponseEntity.accepted().body(java.util.Map.of("status", "queued", "eventId", eventId));
+    }
+
+    @PostMapping("/api/admin/validation/drain")
+    public java.util.Map<String, String> drain() {
+        return java.util.Map.of("status", worker.drainOne());
     }
 }

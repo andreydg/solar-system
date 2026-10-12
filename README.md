@@ -111,18 +111,42 @@ The visualization intentionally separates physical data from display scale:
   oppositions, or conjunctions for a pair/range.
 - `GET /api/catalog/options` lists supported event types and major bodies.
 - `GET /api/validation/jpl/position` fetches a Sun-centered vector from JPL Horizons.
-- `POST /api/validation/jpl/event/{eventId}` validates a cataloged event against
-  JPL vectors and stores corrected/validated metadata where supported.
+- `POST /api/validation/jpl/event/{eventId}` administratively queues revalidation.
+- `POST /api/admin/validation/drain` runs one leased validation job during the request.
 
-Generated events are stored immediately as provisional catalog entries. When
-`JPL_ASYNC_VALIDATION_ENABLED=true`, the backend validates generated events in the
-background and updates the same Firestore document with JPL-derived values. API
+Generated events and durable jobs are stored immediately as provisional catalog entries.
+When `JPL_ASYNC_VALIDATION_ENABLED=true`, the configured authenticated worker trigger
+validates queued events and updates the same Firestore document with JPL-derived values. API
 responses derive display fields by preferring validated values when present, while
 preserving the original computed values for traceability.
 
 ## Verification
 
-### API safety and operations
+### Durable validation worker (required for automatic validation)
+
+Generated events and their initial `events-validation/{eventId}` jobs are now
+inserted in the same transaction. Queries never schedule retries or mutate jobs.
+A single Firestore lease limits validation work across instances. Job leases last
+ten minutes; abandoned work becomes eligible again. Completion updates the event
+and job atomically and is fenced by the lease token, so a late worker cannot
+overwrite a newer result. Transient failures retry with backoff up to five attempts;
+permanent/exhausted failures stop until an administrator explicitly requeues them.
+
+Configure **one** deployment-level scheduler to POST `/api/admin/validation/drain`
+over HTTPS with the admin Bearer token. Each request handles at most one due job;
+allow up to ten minutes for the HTTP request, and start with a one-minute schedule.
+Overlapping invocations safely return `idle-or-busy`. Do not put this trigger or
+token in browser code. This PR does not provision the scheduler, secret, or IAM.
+Without a worker trigger, events remain honestly PENDING; they are not silently
+validated in an in-memory post-response task. `JPL_ASYNC_VALIDATION_ENABLED=false`
+pauses claims without losing work. Restore it to resume.
+
+Run the catalog migration command below (dry-run first, then apply) to backfill
+jobs for old PENDING documents. It does not automatically retry FAILED records.
+Authenticated POST `/api/validation/jpl/event/{eventId}` explicitly requeues an
+event and returns 202. Inspect terminal `state=failed` job documents and alert on
+old `availableAt` times or growing backlog. No periodic browser/database polling
+is introduced; only the single configured worker trigger checks for due jobs.
 
 ### Indexed catalog rollout (required before serving catalog traffic)
 
@@ -165,6 +189,8 @@ For a local emulator use `FIRESTORE_EMULATOR_HOST=127.0.0.1:18085` and a test pr
 with the same command. Repository/migration regression tests refuse non-local
 hosts: `FIRESTORE_EMULATOR_HOST=127.0.0.1:18085 mvn -f backend/pom.xml test
 -Pfirestore-tests`. Normal tests and the live JPL profile remain separate.
+
+### API safety and operations
 
 Generation/query windows must be increasing and at most 31 years; dates are bounded
 to 1600–3000. Generation has a cooperative 30-second calculation budget. Expensive

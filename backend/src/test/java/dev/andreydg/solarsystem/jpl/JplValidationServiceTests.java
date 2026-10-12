@@ -41,14 +41,12 @@ class JplValidationServiceTests {
     void validatesDistanceEventWithBatchedRangeRequests() {
         CatalogEvent event = distanceEvent(EventType.CLOSEST_APPROACH, 0.6);
         when(catalogService.findById("evt")).thenReturn(Optional.of(event));
-        when(catalogService.storeValidation(any(), any(), any(), any(), any(), any(), any()))
-            .thenAnswer(invocation -> invocation.getArgument(0));
 
         // Earth fixed at origin-ish; Mars sweeps closer then farther so the minimum is well-defined.
         stubSweep(BodyId.EARTH, t -> new Vector3Au(1.0, 0.0, 0.0));
         stubSweep(BodyId.MARS, JplValidationServiceTests::marsClosestMidWindow);
 
-        service.validateEvent("evt");
+        var result = service.validateEvent("evt");
 
         // Each body is queried via the batch range API (vectors), never the per-point vector().
         verify(horizonsClient, never()).vector(any(), any());
@@ -57,21 +55,14 @@ class JplValidationServiceTests {
         verify(horizonsClient, org.mockito.Mockito.atLeastOnce())
             .vectors(eq(BodyId.MARS), any(), any(), any());
 
-        ArgumentCaptor<Instant> validatedTime = ArgumentCaptor.forClass(Instant.class);
-        ArgumentCaptor<Double> validatedDistance = ArgumentCaptor.forClass(Double.class);
-        verify(catalogService).storeValidation(
-            eq(event), validatedTime.capture(), validatedDistance.capture(), any(), any(), any(), any());
-
-        // The minimum separation in the stubbed sweep is at the window center, distance ~0.5 AU.
-        assertThat(validatedDistance.getValue()).isCloseTo(0.5, org.assertj.core.data.Offset.offset(0.05));
+        assertThat(result.validationStatus()).isEqualTo(ValidationStatus.VALIDATED);
+        assertThat(result.validatedDistanceAu()).isCloseTo(0.5, org.assertj.core.data.Offset.offset(0.05));
     }
 
     @Test
     void usesMinuteBasedHorizonsStep() {
         CatalogEvent event = distanceEvent(EventType.CLOSEST_APPROACH, 0.6);
         when(catalogService.findById("evt")).thenReturn(Optional.of(event));
-        lenient().when(catalogService.storeValidation(any(), any(), any(), any(), any(), any(), any()))
-            .thenAnswer(invocation -> invocation.getArgument(0));
         stubSweep(BodyId.EARTH, t -> new Vector3Au(1.0, 0.0, 0.0));
         stubSweep(BodyId.MARS, JplValidationServiceTests::marsClosestMidWindow);
 
@@ -83,37 +74,6 @@ class JplValidationServiceTests {
         // 6h coarse / 1h refined steps must be expressed in minutes, matching the working "Nm" form.
         assertThat(step.getAllValues()).allSatisfy(value -> assertThat(value).matches("\\d+m"));
         assertThat(step.getAllValues()).contains("360m", "60m");
-    }
-
-    @Test
-    void leavesEventPendingOnTransientFailure() {
-        JplValidationService asyncService =
-            new JplValidationService(catalogService, horizonsClient, jplProperties(true));
-        CatalogEvent event = distanceEvent(EventType.CLOSEST_APPROACH, 0.6);
-        when(catalogService.findById("evt")).thenReturn(Optional.of(event));
-        when(horizonsClient.vectors(any(), any(), any(), any()))
-            .thenThrow(new JplHorizonsException("connection timed out", true));
-
-        asyncService.validateGeneratedEvents(
-            new dev.andreydg.solarsystem.catalog.CatalogEventsGeneratedEvent(List.of("evt")));
-
-        // A transient failure must not mark the event FAILED; it stays PENDING for later retry.
-        verify(catalogService, never()).storeValidationFailure(any(), any());
-    }
-
-    @Test
-    void marksEventFailedOnPermanentFailure() {
-        JplValidationService asyncService =
-            new JplValidationService(catalogService, horizonsClient, jplProperties(true));
-        CatalogEvent event = distanceEvent(EventType.CLOSEST_APPROACH, 0.6);
-        when(catalogService.findById("evt")).thenReturn(Optional.of(event));
-        when(horizonsClient.vectors(any(), any(), any(), any()))
-            .thenThrow(new JplHorizonsException("ambiguous target", false));
-
-        asyncService.validateGeneratedEvents(
-            new dev.andreydg.solarsystem.catalog.CatalogEventsGeneratedEvent(List.of("evt")));
-
-        verify(catalogService).storeValidationFailure(eq(event), any());
     }
 
     private void stubSweep(BodyId body, java.util.function.Function<Instant, Vector3Au> positionAt) {

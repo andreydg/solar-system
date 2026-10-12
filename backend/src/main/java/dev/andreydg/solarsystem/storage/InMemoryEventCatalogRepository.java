@@ -6,6 +6,11 @@ import dev.andreydg.solarsystem.catalog.EventType;
 import dev.andreydg.solarsystem.catalog.ValidationStatus;
 import dev.andreydg.solarsystem.catalog.CatalogQuery;
 import dev.andreydg.solarsystem.catalog.CatalogPage;
+import dev.andreydg.solarsystem.catalog.ValidationJobs;
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -17,12 +22,20 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 @ConditionalOnProperty(name = "solar-system.storage", havingValue = "in-memory")
-public class InMemoryEventCatalogRepository implements EventCatalogRepository {
+public class InMemoryEventCatalogRepository implements EventCatalogRepository, ValidationJobs {
     private final ConcurrentMap<String, CatalogEvent> events = new ConcurrentHashMap<>();
+    private final Map<String, Job> jobs = new HashMap<>();
+    private Lease activeLease;
+    private Instant leaseUntil = Instant.MIN;
 
     @Override
-    public List<CatalogEvent> upsertAll(List<CatalogEvent> events) {
-        return events.stream().map(event -> this.events.computeIfAbsent(event.id(), id -> event)).toList();
+    public synchronized List<CatalogEvent> upsertAll(List<CatalogEvent> events) {
+        for (var event : events) {
+            if (this.events.putIfAbsent(event.id(), event) == null && event.validationStatus() == ValidationStatus.PENDING) {
+                jobs.put(event.id(), new Job(0, Instant.EPOCH, null));
+            }
+        }
+        return events.stream().map(event -> this.events.get(event.id())).toList();
     }
 
     @Override
@@ -50,5 +63,53 @@ public class InMemoryEventCatalogRepository implements EventCatalogRepository {
     public void upsert(CatalogEvent event) {
         events.put(event.id(), event);
     }
+
+    @Override public synchronized Optional<Lease> claim(Instant now, Duration duration) {
+        if (leaseUntil.isAfter(now)) return Optional.empty();
+        var due = jobs.entrySet().stream().filter(entry -> !entry.getValue().availableAt().isAfter(now))
+            .min(Comparator.comparing(entry -> entry.getValue().availableAt()));
+        if (due.isEmpty()) return Optional.empty();
+        var entry = due.get();
+        activeLease = new Lease(entry.getKey(), UUID.randomUUID().toString(), entry.getValue().attempts() + 1);
+        leaseUntil = now.plus(duration);
+        jobs.put(entry.getKey(), new Job(activeLease.attempt(), leaseUntil, activeLease.token()));
+        return Optional.of(activeLease);
+    }
+    @Override public synchronized boolean complete(Lease lease, CatalogEvent result, Instant now) {
+        if (!lease.eventId().equals(result.id())) throw new IllegalArgumentException("Lease/event mismatch");
+        if (!owns(lease, now)) return false;
+        events.put(result.id(), result);
+        jobs.remove(lease.eventId());
+        activeLease = null;
+        leaseUntil = Instant.MIN;
+        return true;
+    }
+    @Override public synchronized boolean retry(Lease lease, Instant availableAt, String reason, Instant now) {
+        if (!owns(lease, now)) return false;
+        jobs.put(lease.eventId(), new Job(lease.attempt(), availableAt, null));
+        activeLease = null;
+        leaseUntil = Instant.MIN;
+        return true;
+    }
+    @Override public synchronized void enqueue(String id, Instant now) {
+        var event = events.get(id);
+        if (event == null) throw new IllegalArgumentException("Catalog event not found");
+        if (activeLease != null && activeLease.eventId().equals(id) && leaseUntil.isAfter(now)) {
+            throw new IllegalArgumentException("Validation is already running");
+        }
+        events.put(id, event.pending());
+        jobs.put(id, new Job(0, now, null));
+    }
+    @Override public synchronized boolean abandon(Lease lease, String reason, Instant now) {
+        if (!owns(lease, now)) return false;
+        jobs.remove(lease.eventId());
+        activeLease = null;
+        leaseUntil = Instant.MIN;
+        return true;
+    }
+    private boolean owns(Lease lease, Instant now) {
+        return lease.equals(activeLease) && leaseUntil.isAfter(now);
+    }
+    private record Job(int attempts, Instant availableAt, String token) {}
 
 }

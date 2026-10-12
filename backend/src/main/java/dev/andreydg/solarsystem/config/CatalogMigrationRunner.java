@@ -23,9 +23,13 @@ public class CatalogMigrationRunner implements CommandLineRunner {
     }
     @Override public void run(String... args) throws Exception {
         try {
-        var result = new FirestoreIndexMigration(firestore, properties.collection()).run(apply);
-        System.out.println("Catalog migration " + (apply ? "APPLY" : "DRY RUN") + ": " + result);
-        if (result.malformed() > 0) throw new IllegalStateException("Repair malformed records and rerun; migration was not activated");
-        } finally { context.close(); }
+            var result = new FirestoreIndexMigration(firestore, properties.collection()).run(apply);
+            System.out.println("Catalog migration " + (apply ? "APPLY" : "DRY RUN") + ": " + result);
+            if (result.malformed() > 0) throw new IllegalStateException("Repair malformed records and rerun; migration was not activated");
+            int jobs = new dev.andreydg.solarsystem.storage.FirestoreValidationMigration(firestore, properties.collection()).run(apply);
+            System.out.println("Pending validation jobs " + (apply ? "recovered: " : "to recover: ") + jobs);
+        } finally {
+            context.close();
+        }
     }
 }
