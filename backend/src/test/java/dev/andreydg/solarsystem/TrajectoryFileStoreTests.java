@@ -16,6 +16,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class TrajectoryFileStoreTests {
+    @Test void corruptOrUnorderedFilesAreIgnoredAndSavesLeaveNoTemporaryFiles() throws Exception {
+        var store = new TrajectoryFileStore(new TrajectoryCacheProperties(tempDir.toString(), false), JsonMapper.builder().build());
+        Files.writeString(store.pathFor(BodyId.ENCKE), "{broken");
+        assertThat(store.load(BodyId.ENCKE)).isEmpty();
+        var now = Instant.now();
+        store.save(BodyId.ENCKE, List.of(new TrajectorySample(now, new Vector3Au(1,2,3)),
+            new TrajectorySample(now.minusSeconds(60), new Vector3Au(2,3,4))), now.minusSeconds(60), now, Duration.ofDays(1));
+        assertThat(Files.readString(store.pathFor(BodyId.ENCKE))).isEqualTo("{broken");
+        try (var paths = Files.list(tempDir)) { assertThat(paths.filter(path -> path.toString().endsWith(".tmp"))).isEmpty(); }
+    }
     @TempDir
     java.nio.file.Path tempDir;
 

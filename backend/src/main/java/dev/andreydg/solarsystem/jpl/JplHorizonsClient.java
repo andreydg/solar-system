@@ -78,7 +78,7 @@ public class JplHorizonsClient {
         }
 
         // Pin the frame rather than rely on Horizons defaults: J2000 ecliptic (ICRF), the same frame
-        // as the VSOP elements used for events. The browser rotates these into its J2000
+        // as the Keplerian elements used for events. The browser rotates these into its J2000
         // equatorial scene (src/lib/ephemerisApi.ts).
         URI uri = buildUri(
             "format", "text",
@@ -218,7 +218,7 @@ public class JplHorizonsClient {
             .orElse("JPL Horizons request failed");
     }
 
-    private static List<JplVector> parseVectors(BodyId body, String response) {
+    public static List<JplVector> parseVectors(BodyId body, String response) {
         List<JplVector> vectors = new ArrayList<>();
         boolean inData = false;
 

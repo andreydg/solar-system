@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class TrajectoryFileStore {
-    static final int FORMAT_VERSION = 2;
+    static final int FORMAT_VERSION = 3;
 
     private static final Logger log = LoggerFactory.getLogger(TrajectoryFileStore.class);
 
@@ -53,7 +53,7 @@ public class TrajectoryFileStore {
                 ))
                 .toList();
 
-            if (samples.isEmpty()) {
+            if (!validSamples(samples)) {
                 return Optional.empty();
             }
 
@@ -72,7 +72,7 @@ public class TrajectoryFileStore {
         Instant to,
         Duration step
     ) {
-        if (samples.isEmpty()) {
+        if (!validSamples(samples)) {
             return;
         }
 
@@ -96,11 +96,40 @@ public class TrajectoryFileStore {
 
         try {
             Files.createDirectories(path.getParent());
-            jsonMapper.writerWithDefaultPrettyPrinter().writeValue(path.toFile(), cached);
+            Path temporary = Files.createTempFile(path.getParent(), body.apiValue(), ".tmp");
+            try {
+                jsonMapper.writerWithDefaultPrettyPrinter().writeValue(temporary.toFile(), cached);
+                Files.move(temporary, path, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } finally { Files.deleteIfExists(temporary); }
             log.info("Saved trajectory cache for {} to {} ({} samples)", body.apiValue(), path, samples.size());
         } catch (Exception exception) {
             log.warn("Failed to write trajectory cache for {} to {}: {}", body.apiValue(), path, exception.getMessage());
         }
+    }
+
+    public List<TrajectorySample> loadBundled(BodyId body) {
+        try (var stream = getClass().getResourceAsStream("/trajectories/" + body.apiValue() + "-v1.txt")) {
+            if (stream == null) throw new IllegalStateException("Missing bundled trajectory for " + body);
+            String response = new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            var samples = dev.andreydg.solarsystem.jpl.JplHorizonsClient.parseVectors(body, response).stream()
+                .map(vector -> new TrajectorySample(vector.requestedTimeUtc(), vector.positionAu())).toList();
+            if (!validSamples(samples)) throw new IllegalStateException("Invalid bundled trajectory for " + body);
+            return samples;
+        } catch (java.io.IOException exception) { throw new IllegalStateException("Cannot read bundled trajectory", exception); }
+    }
+
+    private static boolean validSamples(List<TrajectorySample> samples) {
+        if (samples == null || samples.size() < 2) return false;
+        Instant previous = null;
+        for (var sample : samples) {
+            if (sample.timeUtc() == null || sample.position() == null ||
+                !Double.isFinite(sample.position().x()) || !Double.isFinite(sample.position().y()) ||
+                !Double.isFinite(sample.position().z()) ||
+                (previous != null && !sample.timeUtc().isAfter(previous))) return false;
+            previous = sample.timeUtc();
+        }
+        return true;
     }
 
     public Path pathFor(BodyId body) {

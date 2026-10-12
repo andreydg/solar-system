@@ -12,20 +12,18 @@ import {
   type CatalogEventType,
 } from "./domain/eventTypes";
 import { findClosestApproach, getBodyPositions } from "./lib/ephemeris";
-import { getBackendBodyPositions } from "./lib/ephemerisApi";
-import { interpolateTrajectory, loadSmallBodyTrajectoriesWithRetry, type SmallBodyTrajectory } from "./lib/smallBodyTrajectory";
+import useSmallBodyTrajectories from "./lib/useSmallBodyTrajectories";
+import { useSimulationClock } from "./lib/useSimulationClock";
+import { interpolateTrajectory } from "./lib/smallBodyTrajectory";
 import { findNextEvent, findPreviousEvent, SEARCH_HORIZON_YEARS, type CatalogEventResult } from "./lib/eventCatalogApi";
 import { addDays, addYears } from "./lib/timeUtils";
 
 const INITIAL_DATE = new Date();
 const DEFAULT_VISIBLE_BODIES = BODIES.filter((body) => !isSmallBody(body.id)).map((body) => body.id);
-// Debounce live small-body fetches so fast-forwarding (many simulated days per second)
-// collapses into a single backend request once playback settles.
-const LIVE_FETCH_DEBOUNCE_MS = 250;
 
 export default function App() {
   const [currentTime, setCurrentTime] = useState(INITIAL_DATE);
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(() => !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [speedDaysPerSecond, setSpeedDaysPerSecond] = useState(10);
   const [visibleBodies, setVisibleBodies] = useState<BodyId[]>(DEFAULT_VISIBLE_BODIES);
   const [eventType, setEventType] = useState<CatalogEventType>("closestApproach");
@@ -36,10 +34,7 @@ export default function App() {
   >(null);
   const [isSearching, setIsSearching] = useState(false);
   const [eventStatus, setEventStatus] = useState<string | null>(null);
-  const [smallBodyTrajectories, setSmallBodyTrajectories] = useState<
-    Partial<Record<BodyId, SmallBodyTrajectory>>
-  >({});
-  const [liveSmallBodyPositions, setLiveSmallBodyPositions] = useState<BodyPosition[]>([]);
+  const { trajectories: smallBodyTrajectories, error: trajectoryError } = useSmallBodyTrajectories(visibleBodies);
   // The body the camera is following, if any; null is the Sun-centred overview.
   const [focusedBody, setFocusedBody] = useState<BodyId | null>(null);
   const searchController = useRef<AbortController | null>(null);
@@ -48,13 +43,7 @@ export default function App() {
     searchController.current?.abort();
     setIsSearching(false);
   };
-  const lastFrameMs = useRef<number | null>(null);
-  // Mirrors currentTime so the debounced fetch can read the latest value without
-  // re-subscribing every animation frame (it keys off the simulated day instead).
-  const currentTimeRef = useRef(currentTime);
-  useEffect(() => {
-    currentTimeRef.current = currentTime;
-  }, [currentTime]);
+  useSimulationClock(isPlaying, speedDaysPerSecond, setCurrentTime);
 
   const eventPairIsValid = useMemo(
     () => isValidEventPair(eventType, eventBodyA, eventBodyB),
@@ -78,83 +67,7 @@ export default function App() {
     });
   };
 
-  useEffect(() => {
-    let animationFrameId = 0;
-
-    const tick = (frameMs: number) => {
-      if (isPlaying) {
-        const lastMs = lastFrameMs.current ?? frameMs;
-        const elapsedSeconds = (frameMs - lastMs) / 1000;
-        const elapsedDays = elapsedSeconds * speedDaysPerSecond;
-
-        setCurrentTime((time) => addDays(time, elapsedDays));
-      }
-
-      lastFrameMs.current = frameMs;
-      animationFrameId = window.requestAnimationFrame(tick);
-    };
-
-    animationFrameId = window.requestAnimationFrame(tick);
-
-    return () => window.cancelAnimationFrame(animationFrameId);
-  }, [isPlaying, speedDaysPerSecond]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void loadSmallBodyTrajectoriesWithRetry().then((trajectories) => {
-      if (!cancelled) {
-        setSmallBodyTrajectories(trajectories);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const visibleSmallBodies = useMemo(
-    () => visibleBodies.filter((body) => isSmallBody(body)),
-    [visibleBodies],
-  );
-  const simulatedDayKey = Math.floor(currentTime.getTime() / 86_400_000);
-
-  const smallBodiesNeedingLiveFetch = useMemo(
-    () =>
-      visibleSmallBodies.filter((body) => {
-        const trajectory = smallBodyTrajectories[body];
-        return !trajectory?.length;
-      }),
-    [smallBodyTrajectories, visibleSmallBodies],
-  );
-
-  useEffect(() => {
-    // Nothing to fetch: stale live positions are harmless because the positions memo only
-    // surfaces live data for visible small bodies that still lack a trajectory.
-    if (smallBodiesNeedingLiveFetch.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-    const debounceHandle = window.setTimeout(() => {
-      void getBackendBodyPositions(smallBodiesNeedingLiveFetch, currentTimeRef.current)
-        .then((positions) => {
-          if (!cancelled) {
-            setLiveSmallBodyPositions(positions);
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setLiveSmallBodyPositions([]);
-          }
-        });
-    }, LIVE_FETCH_DEBOUNCE_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(debounceHandle);
-    };
-  }, [simulatedDayKey, smallBodiesNeedingLiveFetch]);
+  const visibleSmallBodies = useMemo(() => visibleBodies.filter(isSmallBody), [visibleBodies]);
 
   const interpolatedSmallBodyPositions = useMemo(
     () =>
@@ -179,20 +92,18 @@ export default function App() {
   const positions = useMemo(() => {
     const majorBodies = visibleBodies.filter((body) => !isSmallBody(body));
     const majorPositions = getBodyPositions(majorBodies, currentTime);
-    const liveByBody = new Map(liveSmallBodyPositions.map((position) => [position.body, position]));
     const interpolatedByBody = new Map(
       interpolatedSmallBodyPositions.map((position) => [position.body, position]),
     );
 
     const smallBodyPositions = visibleSmallBodies
-      .map((body) => interpolatedByBody.get(body) ?? liveByBody.get(body))
+      .map((body) => interpolatedByBody.get(body))
       .filter((position): position is BodyPosition => position !== undefined);
 
     return [...majorPositions, ...smallBodyPositions];
   }, [
     currentTime,
     interpolatedSmallBodyPositions,
-    liveSmallBodyPositions,
     visibleBodies,
     visibleSmallBodies,
   ]);
@@ -380,7 +291,7 @@ export default function App() {
         currentTime={currentTime}
         eventPairIsValid={eventPairIsValid}
         eventResult={eventResult}
-        eventStatus={eventStatus}
+        eventStatus={eventStatus ?? trajectoryError}
         eventBodyA={eventBodyA}
         eventBodyB={eventBodyB}
         eventType={eventType}

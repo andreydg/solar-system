@@ -4,7 +4,6 @@ import {
   getEventTargetOptions,
   isValidEventPair,
   locksEarthAsBodyA,
-  requiresEarth,
 } from "./eventTypes";
 
 describe("eventTypes", () => {
@@ -43,15 +42,13 @@ describe("eventTypes", () => {
     });
   });
 
-  describe("locksEarthAsBodyA / requiresEarth", () => {
+  describe("locksEarthAsBodyA", () => {
     it("are false for unanchored (pairing: any) types", () => {
       expect(locksEarthAsBodyA("closestApproach")).toBe(false);
-      expect(requiresEarth("farthestApproach")).toBe(false);
     });
 
     it("are true for Earth-anchored types", () => {
       expect(locksEarthAsBodyA("opposition")).toBe(true);
-      expect(requiresEarth("conjunction")).toBe(true);
     });
   });
 

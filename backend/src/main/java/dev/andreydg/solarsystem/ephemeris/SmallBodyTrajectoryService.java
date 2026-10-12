@@ -5,16 +5,10 @@ import dev.andreydg.solarsystem.config.TrajectoryCacheProperties;
 import dev.andreydg.solarsystem.ephemeris.JplEphemerisProvider.TrajectorySample;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -22,7 +16,6 @@ public class SmallBodyTrajectoryService {
     /** Target samples per half-orbit window; high count is fine once cached on disk. */
     public static final int ORBIT_SAMPLE_COUNT = 19_200;
 
-    private static final Logger log = LoggerFactory.getLogger(SmallBodyTrajectoryService.class);
 
     private final JplEphemerisProvider jplEphemerisProvider;
     private final TrajectoryFileStore trajectoryFileStore;
@@ -33,8 +26,6 @@ public class SmallBodyTrajectoryService {
     private final ConcurrentMap<BodyId, FailedLoad> failures = new ConcurrentHashMap<>();
     private record FailedLoad(Instant retryAfter, RuntimeException error) {}
 
-    @org.springframework.beans.factory.annotation.Value("${solar-system.trajectories.prewarm-enabled:true}")
-    private boolean prewarmEnabled = true;
 
     public SmallBodyTrajectoryService(
         JplEphemerisProvider jplEphemerisProvider,
@@ -94,7 +85,7 @@ public class SmallBodyTrajectoryService {
         List<TrajectorySample> trajectory = cache.get(body);
         if (trajectory == null || trajectory.isEmpty()) {
             trajectory = getTrajectory(body);
-            if (trajectory.isEmpty()) {
+            if (trajectory == null || trajectory.isEmpty()) {
                 return Optional.empty();
             }
         }
@@ -111,18 +102,12 @@ public class SmallBodyTrajectoryService {
             return timeUtc;
         }
 
-        long orbitDays = Math.max(1, Math.round(body.typicalOrbitDays()));
-        long daysFromFirst = Duration.between(first.timeUtc(), timeUtc).toDays();
-        long wrappedDays = Math.floorMod(daysFromFirst, orbitDays);
-        Instant phasedTime = first.timeUtc().plus(Duration.ofDays(wrappedDays));
-
-        if (!phasedTime.isAfter(last.timeUtc())) {
-            return phasedTime;
-        }
-
-        long spanDays = Duration.between(first.timeUtc(), last.timeUtc()).toDays();
-        long offsetDays = Math.floorMod(wrappedDays, spanDays + 1);
-        return first.timeUtc().plus(Duration.ofDays(offsetDays));
+        long orbitMillis = Math.round(body.typicalOrbitDays() * 86_400_000);
+        long offset = Math.floorMod(timeUtc.toEpochMilli() - first.timeUtc().toEpochMilli(), orbitMillis);
+        long span = last.timeUtc().toEpochMilli() - first.timeUtc().toEpochMilli();
+        if (span <= 0) return first.timeUtc();
+        if (offset > span) offset = Math.floorMod(offset, span);
+        return first.timeUtc().plusMillis(offset);
     }
 
     // Package-private so unit tests in this package can exercise the interpolation algorithm directly.
@@ -173,45 +158,12 @@ public class SmallBodyTrajectoryService {
         return Optional.of(lerp(start.position(), end.position(), ratio));
     }
 
-    public boolean covers(BodyId body, Instant timeUtc) {
-        List<TrajectorySample> trajectory = cache.get(body);
-        if (trajectory == null || trajectory.isEmpty()) {
-            return false;
-        }
-
-        return !timeUtc.isBefore(trajectory.getFirst().timeUtc())
-            && !timeUtc.isAfter(trajectory.getLast().timeUtc());
-    }
-
-    @Async
-    @EventListener(ApplicationReadyEvent.class)
-    public void prewarmTrajectories() {
-        if (!prewarmEnabled) return;
-        Arrays.stream(BodyId.values())
-            .filter(BodyId::isSmallBody)
-            .forEach(body -> {
-                try {
-                    if (!trajectoryCacheProperties.refreshFromJpl()) {
-                        Thread.sleep(100);
-                    } else {
-                        Thread.sleep(1_500);
-                    }
-                    List<TrajectorySample> trajectory = getTrajectory(body);
-                    log.info("Prewarmed trajectory for {} ({} samples)", body.apiValue(), trajectory.size());
-                } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
-                } catch (RuntimeException exception) {
-                    log.warn("Failed to prewarm trajectory for {}: {}", body.apiValue(), exception.getMessage());
-                }
-            });
-    }
-
     private List<TrajectorySample> loadTrajectory(BodyId body) {
         if (!trajectoryCacheProperties.refreshFromJpl()) {
             Optional<List<TrajectorySample>> fromFile = trajectoryFileStore.load(body);
-            if (fromFile.isPresent()) {
-                return fromFile.get();
-            }
+            if (fromFile.isPresent()) return fromFile.get();
+            // Bundled data makes normal cold starts independent of Horizons/network.
+            return trajectoryFileStore.loadBundled(body);
         }
 
         Instant epoch = body.trajectoryEpoch();

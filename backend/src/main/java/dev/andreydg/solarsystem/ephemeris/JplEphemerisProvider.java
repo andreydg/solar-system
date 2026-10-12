@@ -6,11 +6,10 @@ import dev.andreydg.solarsystem.jpl.JplHorizonsException;
 import dev.andreydg.solarsystem.jpl.JplVector;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -18,19 +17,25 @@ public class JplEphemerisProvider implements EphemerisProvider {
     private static final Duration BATCH_WINDOW = Duration.ofDays(365L * 50);
 
     private final JplHorizonsClient horizonsClient;
-    private final ConcurrentMap<CacheKey, Vector3Au> cache = new ConcurrentHashMap<>();
+    static final int MAX_POINT_CACHE = 4096;
+    private final Map<CacheKey, Vector3Au> cache = new LinkedHashMap<>(128, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<CacheKey, Vector3Au> eldest) {
+            return size() > MAX_POINT_CACHE;
+        }
+    };
+    synchronized int cachedPointCount() { return cache.size(); }
 
     public JplEphemerisProvider(JplHorizonsClient horizonsClient) {
         this.horizonsClient = horizonsClient;
     }
 
     @Override
-    public Vector3Au heliocentricPosition(BodyId body, Instant timeUtc) {
+    public synchronized Vector3Au heliocentricPosition(BodyId body, Instant timeUtc) {
         if (!body.isSmallBody()) {
             throw new IllegalArgumentException("JPL ephemeris is only configured for small bodies: " + body);
         }
 
-        CacheKey key = new CacheKey(body, timeUtc.truncatedTo(ChronoUnit.HOURS));
+        CacheKey key = new CacheKey(body, timeUtc);
         return cache.computeIfAbsent(key, ignored -> horizonsClient.vector(body, timeUtc).positionAu());
     }
 
@@ -70,10 +75,6 @@ public class JplEphemerisProvider implements EphemerisProvider {
             try {
                 for (JplVector vector : horizonsClient.vectors(body, windowStart, windowEnd, formatStep(step))) {
                     Vector3Au position = vector.positionAu();
-                    cache.put(
-                        new CacheKey(body, vector.requestedTimeUtc().truncatedTo(ChronoUnit.HOURS)),
-                        position
-                    );
                     if (!samples.isEmpty()) {
                         TrajectorySample last = samples.getLast();
                         if (last.timeUtc().equals(vector.requestedTimeUtc())) {

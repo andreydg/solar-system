@@ -71,6 +71,8 @@ public class ApiGuardFilter extends OncePerRequestFilter {
         String path = request.getServletPath();
         if (path.isEmpty()) path = request.getRequestURI();
         if (!path.startsWith("/api/")) {
+            response.setHeader("Cache-Control", path.startsWith("/assets/") ? "public, max-age=31536000, immutable"
+                : path.startsWith("/textures/") ? "public, max-age=86400" : "no-cache");
             chain.doFilter(request, response);
             return;
         }

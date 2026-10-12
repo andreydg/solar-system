@@ -25,6 +25,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 class EventCatalogServiceTests {
     @Autowired
     private EventCatalogService service;
+    @Autowired
+    private dev.andreydg.solarsystem.storage.EventCatalogRepository repository;
 
     @Autowired private dev.andreydg.solarsystem.storage.EventCatalogRepository repository;
 
@@ -137,7 +139,7 @@ class EventCatalogServiceTests {
         // Generate (PENDING) then mark one validated so there is something to query.
         var generated = service.generate(EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS, from, to);
         CatalogEvent pending = generated.getFirst();
-        service.storeValidation(pending, pending.computedTimeUtc(), pending.computedDistanceAu(), null, null, 0.0, "test");
+        repository.upsert(pending.validated(pending.computedTimeUtc(), pending.computedDistanceAu(), null, null, 0.0, "test"));
 
         var all = service.listValidatedEvents(Optional.empty(), Optional.empty(), Optional.empty());
         assertThat(all).hasSize(1);

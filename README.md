@@ -1,7 +1,7 @@
 # Solar System Explorer
 
 An interactive solar system web app. The frontend computes smooth major-planet
-positions in the browser with `astronomy-engine`, while the Phase 2 backend adds a
+positions in the browser with `astronomy-engine`, while the backend provides a
 searchable event catalog and JPL Horizons validation.
 
 ## Stack
@@ -54,7 +54,8 @@ curl -X POST http://127.0.0.1:8080/api/events/generate \
   -H 'Content-Type: application/json' \
   -d '{"type":"closestApproach","bodyA":"earth","bodyB":"mars","from":"2026-01-01T00:00:00Z","to":"2029-01-01T00:00:00Z"}'
 
-curl 'http://127.0.0.1:8080/api/validation/jpl/position?body=mars&time=2026-01-01T00:00:00Z'
+curl -H "Authorization: Bearer $SOLAR_SYSTEM_ADMIN_TOKEN" \
+  'http://127.0.0.1:8080/api/validation/jpl/position?body=mars&time=2026-01-01T00:00:00Z'
 ```
 
 ## Deploy To Cloud Run
@@ -89,8 +90,10 @@ Deploy the service in the same GCP project as your Firestore database.
 - Real ephemeris-backed planet positions for the selected time.
 - Play/pause, jump-to-date, and adjustable accelerated time.
 - Planet toggles, orbit trails, labels, and Saturn rings.
-- Earth-Mars closest-approach search over the next three years, backed by the
-  event catalog when the backend is available and browser computation otherwise.
+- Eleven event types with next/previous search and explicit validation status.
+- Ceres, Vesta, Encke, and Halley paths loaded only when requested.
+- Major-planet closest-approach fallback finds the next/previous local minimum
+  within five years when the backend is unavailable.
 
 ## Architecture Notes
 
@@ -104,11 +107,11 @@ The visualization intentionally separates physical data from display scale:
 - Rendered planet radii are exaggerated so bodies remain visible.
 - Scene distance uses a fixed AU-to-scene-unit scale.
 
-## Phase 2 Backend
+## Backend API
 
 - `GET /api/events` queries cataloged events.
 - `POST /api/events/generate` idempotently generates closest approaches,
-  oppositions, or conjunctions for a pair/range.
+  and the other supported event types for a pair/range.
 - `GET /api/catalog/options` lists supported event types and major bodies.
 - `GET /api/validation/jpl/position` fetches a Sun-centered vector from JPL Horizons.
 - `POST /api/validation/jpl/event/{eventId}` administratively queues revalidation.
@@ -147,7 +150,7 @@ validated in an in-memory post-response task. `JPL_ASYNC_VALIDATION_ENABLED=fals
 pauses claims without losing work. Restore it to resume.
 
 Run the catalog migration command below (dry-run first, then apply) to backfill
-jobs for old PENDING documents. It does not automatically retry FAILED records.
+jobs for current-algorithm PENDING documents. It does not automatically retry FAILED records.
 Authenticated POST `/api/validation/jpl/event/{eventId}` explicitly requeues an
 event and returns 202 **without clearing accepted values**. Revalidation failures
 leave the last accepted result available; errors belong to the job. A failed
@@ -183,7 +186,6 @@ Do **not** enable traffic on a new database/revision before this rollout:
    ```bash
    GOOGLE_CLOUD_PROJECT=YOUR_PROJECT java -jar backend/target/solar-system-backend-0.1.0.jar \
      --spring.main.web-application-type=none \
-     --solar-system.trajectories.prewarm-enabled=false \
      --solar-system.jpl.async-validation-enabled=false \
      --solar-system.migration.enabled=true
    ```
@@ -278,6 +280,23 @@ retained as version 0, but excluded from current searches. New generation uses
 version-prefixed IDs, so old incorrect validations cannot suppress corrected events.
 Only current-version pending events receive backfilled jobs; obsolete queued jobs
 are abandoned without promoting their results. No historical records are deleted.
+
+## Trajectory and performance operations
+
+Versioned, unmodified Horizons responses in `backend/src/main/resources/trajectories/`
+ship with the jar (see their README for dates/query/provenance). Default cold loads
+use these local snapshots, not outbound requests. They are visual/candidate
+approximations, not substitutes for live event validation. Refreshing a snapshot
+requires an explicit reviewed data update; runtime `TRAJECTORY_REFRESH_FROM_JPL=true`
+is an operator override, not a startup prewarming flag. Disk format 3 distinguishes
+explicit UT vectors from older caches. Saves are atomic; malformed/stale files are
+ignored. Per-body cold loads are single-flight and the point cache is bounded.
+
+The UI loads only visible small bodies, keeps successful paths independently, and
+offers manual retry on failure. It no longer polls live positions or retries the
+whole group. Simulation state updates at most ten times/sec, pauses work in hidden
+tabs, and starts paused for reduced-motion users. Texture and hashed-asset HTTP
+caching are explicit; the runtime container runs as an unprivileged user.
 
 ## Catalog rollback and retries
 

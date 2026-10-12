@@ -225,3 +225,29 @@ test("a scene import that fails again on Retry reloads the document once", async
   expect(documents).toBe(2);
   expect(attempts).toBe(3);
 });
+
+test("small-body paths are lazy and the real bundled Halley path supports camera focus", async ({ page }) => {
+  const requested: string[] = [];
+  await page.route("**/api/ephemeris/trajectory?**", route => {
+    requested.push(new URL(route.request().url()).searchParams.get("body")!);
+    return route.continue();
+  });
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Find", exact: true })).toBeVisible();
+  expect(requested).toEqual([]);
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Halley", exact: true }).check();
+  await expect(page.getByRole("button", { name: "Halley", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Halley", exact: true }).focus();
+  await page.getByRole("button", { name: "Halley", exact: true }).press("Enter");
+  await expect(page.getByText("Following Halley")).toBeVisible();
+  expect(requested).toEqual(["halley"]);
+});
+
+test("failed scene chunk leaves controls usable with a retry action", async ({ page }) => {
+  await page.route("**/assets/SolarSystemScene-*.js", route => route.abort());
+  await page.goto("/");
+  await expect(page.getByRole("alert")).toContainText("3D view could not load");
+  await expect(page.getByRole("button", { name: "Retry 3D view" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Today", exact: true })).toBeEnabled();
+});

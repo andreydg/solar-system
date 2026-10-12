@@ -115,10 +115,12 @@ describe("smallBodyTrajectory", () => {
       }));
     };
 
-    it("produces a renderable orbit (>=1 segment, all points, each drawable) for dense data", () => {
+    it("produces a renderable simplified orbit with both endpoints for dense data", () => {
       const segments = buildOrbitTrailSegments(denseTrajectory(400, 5)); // ~5.5 yr, no gaps > 45d
       expect(segments.length).toBeGreaterThanOrEqual(1);
-      expect(segments.reduce((n, s) => n + s.length, 0)).toBe(400);
+      expect(segments.reduce((n, s) => n + s.length, 0)).toBeLessThan(400);
+      expect(segments[0][0]).toEqual(denseTrajectory(400, 5)[0].positionAu);
+      expect(segments.at(-1)?.at(-1)).toEqual(denseTrajectory(400, 5).at(-1)?.positionAu);
       expect(segments.every((s) => s.length >= 2)).toBe(true);
     });
 
@@ -126,7 +128,7 @@ describe("smallBodyTrajectory", () => {
       const segments = buildOrbitTrailSegments(denseTrajectory(1200, 3));
       expect(segments).toHaveLength(1);
       const scenePoints = segments[0].map((p) => [p.x, p.y, p.z] as [number, number, number]);
-      const chunks = chunkScenePoints(scenePoints);
+      const chunks = chunkScenePoints(scenePoints, 64);
       expect(chunks.length).toBeGreaterThan(1);
       expect(chunks.every((c) => c.length >= 2)).toBe(true);
       for (let i = 1; i < chunks.length; i += 1) {
