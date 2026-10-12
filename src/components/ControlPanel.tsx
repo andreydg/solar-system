@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { parseUtcInput } from "../lib/timeUtils";
 import ValidatedEventsOverlay from "./ValidatedEventsOverlay";
 import EventTypesOverlay from "./EventTypesOverlay";
 import {
@@ -102,11 +103,16 @@ export default function ControlPanel({
         </div>
 
         <label className="field">
-          <span>Jump to date</span>
+          <span>Jump to date (UTC)</span>
           <input
             type="datetime-local"
+            min="1600-01-01T00:00"
+            max="2999-12-31T23:59"
             value={toDateTimeLocalValue(currentTime)}
-            onChange={(event) => onDateChange(new Date(event.target.value))}
+            onChange={(event) => {
+              const time = parseUtcInput(event.target.value);
+              if (time) onDateChange(time);
+            }}
           />
         </label>
 
@@ -165,6 +171,7 @@ export default function ControlPanel({
             </button>
           </span>
           <select
+            aria-label="Event type"
             value={eventType}
             onChange={(event) => onEventTypeChange(event.target.value as ApiCatalogEventType)}
           >

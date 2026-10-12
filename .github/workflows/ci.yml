@@ -72,3 +72,13 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+      - name: Packaged production-asset E2E tests
+        run: npm run test:e2e
+

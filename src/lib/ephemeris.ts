@@ -7,7 +7,7 @@ import {
   type Vec3,
   distanceAu,
 } from "../domain/solarSystem";
-import { addDays, DAY_MS } from "../lib/timeUtils";
+import { DAY_MS } from "../lib/timeUtils";
 
 type AstronomyBody = unknown;
 
@@ -93,27 +93,21 @@ export function findClosestApproach(
   bodyB: BodyId,
   start: Date,
   end: Date,
-): ClosestApproachResult {
-  let windowStart = start;
-  let windowEnd = end;
-  let stepDays = 5;
-  let best = findClosestInWindow(bodyA, bodyB, windowStart, windowEnd, stepDays);
-
-  for (const nextStepDays of [1, 0.25, 1 / 24]) {
-    windowStart = addDays(best.time, -stepDays * 2);
-    windowEnd = addDays(best.time, stepDays * 2);
-    stepDays = nextStepDays;
-    best = findClosestInWindow(bodyA, bodyB, windowStart, windowEnd, stepDays);
+  direction: "next" | "prev" = "next",
+): ClosestApproachResult | null {
+  if (!ASTRO_BODY_BY_ID[bodyA] || !ASTRO_BODY_BY_ID[bodyB] || bodyA === bodyB) return null;
+  const step = DAY_MS; // first local minimum, not the global minimum in a multi-year window
+  const sign = direction === "next" ? 1 : -1;
+  const anchor = direction === "next" ? start.getTime() : end.getTime();
+  const distance = (ms: number) => distanceAu(getBodyPosition(bodyA, new Date(ms)).positionAu, getBodyPosition(bodyB, new Date(ms)).positionAu);
+  for (let center = anchor + sign * step; center > start.getTime() && center < end.getTime(); center += sign * step) {
+    if (distance(center) < distance(center - step) && distance(center) < distance(center + step)) {
+      const best = findClosestInWindow(bodyA, bodyB, new Date(Math.max(start.getTime(), center - step)),
+        new Date(Math.min(end.getTime(), center + step)), 1 / 24);
+      return { bodyA, bodyB, time: best.time, distanceAu: best.distanceAu, distanceKm: best.distanceAu * AU_KM, refinementStepDays: 1 / 24 };
+    }
   }
-
-  return {
-    bodyA,
-    bodyB,
-    time: best.time,
-    distanceAu: best.distanceAu,
-    distanceKm: best.distanceAu * AU_KM,
-    refinementStepDays: stepDays,
-  };
+  return null;
 }
 
 function findClosestInWindow(

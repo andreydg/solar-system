@@ -1,4 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import SceneBoundary from "./components/SceneBoundary";
+import { canUseBrowserFallback } from "./lib/http";
 import ControlPanel from "./components/ControlPanel";
 
 // The 3D scene pulls in three.js + @react-three/*, the bulk of the bundle. Load it lazily
@@ -43,6 +45,12 @@ export default function App() {
   const [liveSmallBodyPositions, setLiveSmallBodyPositions] = useState<BodyPosition[]>([]);
   // The body the camera is following, if any; null is the Sun-centred overview.
   const [focusedBody, setFocusedBody] = useState<BodyId | null>(null);
+  const searchController = useRef<AbortController | null>(null);
+  useEffect(() => () => searchController.current?.abort(), []);
+  const cancelSearch = () => {
+    searchController.current?.abort();
+    setIsSearching(false);
+  };
   const lastFrameMs = useRef<number | null>(null);
   // Mirrors currentTime so the debounced fetch can read the latest value without
   // re-subscribing every animation frame (it keys off the simulated day instead).
@@ -235,6 +243,7 @@ export default function App() {
 
   const handleEventTypeChange = (type: CatalogEventType) => {
     setEventType(type);
+    cancelSearch();
     setEventResult(null);
     setEventStatus(null);
 
@@ -245,6 +254,7 @@ export default function App() {
 
   const handleEventBodyAChange = (body: BodyId) => {
     setEventBodyA(body);
+    cancelSearch();
     setEventResult(null);
     setEventStatus(null);
 
@@ -255,6 +265,7 @@ export default function App() {
 
   const handleEventBodyBChange = (body: BodyId) => {
     setEventBodyB(body);
+    cancelSearch();
     setEventResult(null);
     setEventStatus(null);
 
@@ -269,15 +280,19 @@ export default function App() {
       return;
     }
 
+    searchController.current?.abort();
+    const controller = new AbortController();
+    searchController.current = controller;
     setIsSearching(true);
     setEventStatus(`Searching for ${direction === "prev" ? "previous" : "next"} event...`);
 
     try {
       const result =
         direction === "prev"
-          ? await findPreviousEvent(eventType, eventBodyA, eventBodyB, anchor)
-          : await findNextEvent(eventType, eventBodyA, eventBodyB, anchor);
+          ? await findPreviousEvent(eventType, eventBodyA, eventBodyB, anchor, controller.signal)
+          : await findNextEvent(eventType, eventBodyA, eventBodyB, anchor, controller.signal);
 
+      if (controller.signal.aborted) return;
       if (!result) {
         setEventStatus(
           `No matching events found in the ${direction === "prev" ? "previous" : "next"} ${SEARCH_HORIZON_YEARS} years.`,
@@ -295,7 +310,8 @@ export default function App() {
           : "Loaded provisional event.",
       );
     } catch (error) {
-      if (eventType !== "closestApproach") {
+      if (controller.signal.aborted) return;
+      if (eventType !== "closestApproach" || !canUseBrowserFallback(error) || isSmallBody(eventBodyA) || isSmallBody(eventBodyB)) {
         setEventStatus(
           error instanceof Error ? error.message : "Event search failed.",
         );
@@ -304,7 +320,8 @@ export default function App() {
 
       const start = direction === "prev" ? addYears(anchor, -5) : anchor;
       const end = direction === "prev" ? anchor : addYears(anchor, 5);
-      const result = findClosestApproach(eventBodyA, eventBodyB, start, end);
+      const result = findClosestApproach(eventBodyA, eventBodyB, start, end, direction);
+      if (!result) { setEventStatus("Backend unavailable; no local minimum found in the five-year browser window."); return; }
 
       setCurrentTime(result.time);
       ensureBodiesVisible(result.bodyA, result.bodyB);
@@ -321,8 +338,10 @@ export default function App() {
         }`,
       );
     } finally {
-      setIsSearching(false);
-      setIsPlaying(false);
+      if (!controller.signal.aborted) {
+        setIsSearching(false);
+        setIsPlaying(false);
+      }
     }
   };
 
@@ -339,7 +358,7 @@ export default function App() {
   return (
     <main className="app-shell">
       <section className="hero-panel" aria-label="Solar system simulation">
-        <Suspense fallback={<div className="scene-loading">Loading 3D view…</div>}>
+        <SceneBoundary><Suspense fallback={<div className="scene-loading">Loading 3D view…</div>}>
           <SolarSystemScene
             currentTime={currentTime}
             focusedBody={focusedBody}
@@ -349,7 +368,7 @@ export default function App() {
             visibleBodies={visibleBodies}
             onFocusBody={setFocusedBody}
           />
-        </Suspense>
+        </Suspense></SceneBoundary>
         {focusedBody ? (
           <div className="focus-chip" role="status">
             <span>
@@ -375,7 +394,7 @@ export default function App() {
         locksEarthAsBodyA={locksEarthAsBodyA(eventType)}
         speedDaysPerSecond={speedDaysPerSecond}
         visibleBodies={visibleBodies}
-        onDateChange={setCurrentTime}
+        onDateChange={(time) => { cancelSearch(); setEventResult(null); setEventStatus(null); setCurrentTime(time); setIsPlaying(false); }}
         onEventBodyAChange={handleEventBodyAChange}
         onEventBodyBChange={handleEventBodyBChange}
         onEventTypeChange={handleEventTypeChange}

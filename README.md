@@ -250,6 +250,13 @@ mvn -f backend/pom.xml package
 
 ## Scientific provenance and catalog version 2
 
+Browser regression tests run against the production jar with the real Vite build:
+`npx playwright install chromium && npm run test:e2e` (Java and Maven required;
+set `MAVEN=/absolute/path/to/mvn` if Maven is not on PATH). API responses are
+explicit offline fixtures; UI, assets, HTTP static serving, and browser timezone
+behavior are real. No live Horizons or Firestore access is needed. The test server
+uses port 18080 and shuts down automatically.
+
 Candidates are approximate, not automatically JPL-validated. Planet candidates use
 JPL's [approximate Keplerian elements](https://ssd.jpl.nasa.gov/planets/approx_pos.html)
 (Table 1 in 1800–2050; Table 2 and outer-planet corrections outside that interval).
