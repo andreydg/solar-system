@@ -43,6 +43,7 @@ public class EventCatalogService {
     private final CompositeEphemerisProvider ephemerisProvider;
     private final EventCatalogRepository repository;
     private final ApplicationEventPublisher eventPublisher;
+    private final EmptyWindowCache emptyWindows = new EmptyWindowCache(java.time.Clock.systemUTC());
 
     public EventCatalogService(
         CompositeEphemerisProvider ephemerisProvider,
@@ -82,6 +83,8 @@ public class EventCatalogService {
 
     private List<CatalogEvent> generateWithinBudget(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
         validateRequest(type, bodyA, bodyB);
+        var window = new EmptyWindowCache.Key(type, CatalogQuery.pairKey(bodyA, bodyB), from, to);
+        if (emptyWindows.contains(window)) return repository.find(type, bodyA, bodyB, from, to);
         BodyPair pair = BodyPair.of(bodyA, bodyB);
         List<CatalogEvent> events = switch (type) {
             case CLOSEST_APPROACH -> generateExtremalApproaches(
@@ -141,6 +144,8 @@ public class EventCatalogService {
             eventPublisher.publishEvent(new CatalogEventsGeneratedEvent(validatableIds));
         }
 
+        if (validEvents.isEmpty()) emptyWindows.remember(window);
+
         return validEvents.stream()
             .map(event -> existingById.getOrDefault(event.id(), event))
             .toList();
@@ -151,17 +156,13 @@ public class EventCatalogService {
         Optional<BodyId> bodyA,
         Optional<BodyId> bodyB
     ) {
-        return repository.findAllValidated().stream()
-            .filter(this::isStoredEventValid)
-            .filter(event -> type.isEmpty() || event.type() == type.get())
-            .filter(event -> bodyA.isEmpty() || involvesBody(event, bodyA.get()))
-            .filter(event -> bodyB.isEmpty() || involvesBody(event, bodyB.get()))
-            .sorted(Comparator.comparing(CatalogEvent::displayTimeUtc))
-            .toList();
+        return search(new CatalogQuery(type.orElse(null), bodyA.orElse(null), bodyB.orElse(null),
+            CatalogLimits.MIN_TIME, CatalogLimits.MAX_TIME.minusNanos(1), true, false, 100, null)).events();
     }
 
-    private static boolean involvesBody(CatalogEvent event, BodyId body) {
-        return event.bodyA() == body || event.bodyB() == body;
+    public CatalogPage search(CatalogQuery query) {
+        var page = repository.search(query);
+        return new CatalogPage(page.events().stream().filter(this::isStoredEventValid).toList(), page.nextCursor());
     }
 
     public CatalogEvent storeValidation(

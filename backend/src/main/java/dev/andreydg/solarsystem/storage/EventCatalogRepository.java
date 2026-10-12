@@ -3,6 +3,8 @@ package dev.andreydg.solarsystem.storage;
 import dev.andreydg.solarsystem.catalog.BodyId;
 import dev.andreydg.solarsystem.catalog.CatalogEvent;
 import dev.andreydg.solarsystem.catalog.EventType;
+import dev.andreydg.solarsystem.catalog.CatalogQuery;
+import dev.andreydg.solarsystem.catalog.CatalogPage;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -10,17 +12,19 @@ import java.util.Optional;
 public interface EventCatalogRepository {
     void upsertAll(List<CatalogEvent> events);
 
-    List<CatalogEvent> find(
+    default List<CatalogEvent> find(
         EventType type,
         BodyId bodyA,
         BodyId bodyB,
         Instant from,
         Instant to
-    );
+    ) {
+        return search(new CatalogQuery(type, bodyA, bodyB, from, to, false, false, 1000, null)).events();
+    }
 
     Optional<CatalogEvent> findById(String id);
 
-    List<CatalogEvent> findAllValidated();
+    CatalogPage search(CatalogQuery query);
 
     void upsert(CatalogEvent event);
 }

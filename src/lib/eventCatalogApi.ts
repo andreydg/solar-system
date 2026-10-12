@@ -67,9 +67,15 @@ export type ValidatedEventQuery = {
   type?: CatalogEventType;
   bodyA?: BodyId;
   bodyB?: BodyId;
+  from?: string;
+  to?: string;
+  descending?: boolean;
+  cursor?: string;
 };
 
-export async function getValidatedEvents(query: ValidatedEventQuery = {}): Promise<CatalogEventResult[]> {
+export type CatalogEventPage = { events: CatalogEventResult[]; nextCursor: string | null };
+
+export async function getValidatedEvents(query: ValidatedEventQuery = {}): Promise<CatalogEventPage> {
   const params = new URLSearchParams();
   if (query.type) {
     params.set("type", query.type);
@@ -80,12 +86,17 @@ export async function getValidatedEvents(query: ValidatedEventQuery = {}): Promi
   if (query.bodyB) {
     params.set("bodyB", query.bodyB);
   }
+  if (query.from) params.set("from", query.from);
+  if (query.to) params.set("to", query.to);
+  if (query.cursor) params.set("cursor", query.cursor);
+  params.set("descending", String(query.descending ?? false));
+  params.set("limit", "50");
 
   const queryString = params.toString();
   const response = await fetch(`/api/events/validated${queryString ? `?${queryString}` : ""}`);
   await assertOk(response);
   const events = (await response.json()) as ApiEvent[];
-  return events.map(toCatalogEventResult);
+  return { events: events.map(toCatalogEventResult), nextCursor: response.headers.get("X-Next-Cursor") };
 }
 
 export const SEARCH_HORIZON_YEARS = 1000;
@@ -108,7 +119,7 @@ export async function findNextEvent(
 
   while (windowStart < absoluteEnd) {
     const windowEnd = minDate(addYears(windowStart, GENERATE_WINDOW_YEARS), absoluteEnd);
-    const queryResult = await queryEvents(type, bodyA, bodyB, windowStart, windowEnd);
+    const queryResult = await queryEvents(type, bodyA, bodyB, windowStart, windowEnd, false);
 
     if (queryResult.length > 0) {
       return toCatalogEventResult(queryResult[0]);
@@ -136,7 +147,7 @@ export async function findPreviousEvent(
 
   while (windowEnd > absoluteStart) {
     const windowStart = maxDate(addYears(windowEnd, -GENERATE_WINDOW_YEARS), absoluteStart);
-    const queryResult = await queryEvents(type, bodyA, bodyB, windowStart, windowEnd);
+    const queryResult = await queryEvents(type, bodyA, bodyB, windowStart, windowEnd, true);
 
     if (queryResult.length > 0) {
       // Results are ordered ascending by time; the last one is the latest before `before`.
@@ -160,6 +171,7 @@ async function queryEvents(
   bodyB: BodyId,
   start: Date,
   end: Date,
+  descending: boolean,
 ) {
   const params = new URLSearchParams({
     type,
@@ -167,6 +179,8 @@ async function queryEvents(
     bodyB,
     from: start.toISOString(),
     to: end.toISOString(),
+    limit: "1",
+    descending: String(descending),
   });
 
   const response = await fetch(`/api/events?${params.toString()}`);
