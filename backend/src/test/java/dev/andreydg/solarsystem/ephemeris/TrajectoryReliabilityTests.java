@@ -36,8 +36,11 @@ class TrajectoryReliabilityTests {
             new JplEphemerisProvider.TrajectorySample(Instant.EPOCH, new Vector3Au(1, 0, 0)),
             new JplEphemerisProvider.TrajectorySample(Instant.EPOCH.plusSeconds(100), new Vector3Au(2, 0, 0)));
         when(store.loadBundled(BodyId.HALLEY)).thenThrow(new IllegalStateException("temporary")).thenReturn(samples);
-        var service = new SmallBodyTrajectoryService(mock(JplEphemerisProvider.class), store, properties);
+        var clock = mock(java.time.Clock.class);
+        when(clock.instant()).thenReturn(Instant.EPOCH);
+        var service = new SmallBodyTrajectoryService(mock(JplEphemerisProvider.class), store, properties, clock);
         assertThatThrownBy(() -> service.getTrajectory(BodyId.HALLEY)).isInstanceOf(IllegalStateException.class);
+        when(clock.instant()).thenReturn(Instant.EPOCH.plusSeconds(11));
         try (var pool = Executors.newFixedThreadPool(8)) {
             var requests = java.util.stream.IntStream.range(0, 16)
                 .mapToObj(i -> (Callable<Object>) () -> service.getTrajectory(BodyId.HALLEY)).toList();
@@ -45,6 +48,56 @@ class TrajectoryReliabilityTests {
         }
         verify(store, times(2)).loadBundled(BodyId.HALLEY); // one failure, one shared success
     }
+    @Test void wrongSnapshotIdentityFrameUnitsAndTimescaleAreRejected() throws Exception {
+        for (var body : List.of(BodyId.CERES, BodyId.VESTA, BodyId.ENCKE, BodyId.HALLEY)) {
+            try (var input = getClass().getResourceAsStream("/trajectories/" + body.apiValue() + "-v1.txt")) {
+                String raw = new String(input.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                for (String corrupted : List.of(
+                    raw.replaceFirst("Target body name: [^\\r\\n]+", "Target body name: wrong"),
+                    raw.replace("Sun (10)", "Earth (399)"),
+                    raw.replace("BODY CENTER", "SURFACE OBSERVER"),
+                    raw.replace("AU-D", "KM-S"),
+                    raw.replace("Gregorian", "Mixed"),
+                    raw.replace("GEOMETRIC cartesian states", "APPARENT cartesian states"),
+                    raw.replace("Ecliptic of J2000.0", "ICRF"),
+                    raw.replace("Calendar Date (UT )", "Calendar Date (TDB)"),
+                    raw.replace(" UT ", " TDB "))) {
+                    assertThatThrownBy(() -> TrajectoryFileStore.parseBundled(body, corrupted))
+                        .isInstanceOf(IllegalStateException.class).hasMessageContaining("metadata");
+                }
+            }
+        }
+    }
+
+    @Test void slowPointMissDoesNotBlockCachedHitsOrOtherKeysAndIsSingleFlight() throws Exception {
+        var client = mock(JplHorizonsClient.class);
+        when(client.vector(any(), any())).thenAnswer(call ->
+            new JplVector(call.getArgument(0), call.getArgument(1), new Vector3Au(1,2,3), "test", "test"));
+        var provider = new JplEphemerisProvider(client);
+        provider.heliocentricPosition(BodyId.HALLEY, Instant.EPOCH);
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        when(client.vector(BodyId.CERES, Instant.EPOCH)).thenAnswer(call -> {
+            entered.countDown();
+            release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            return new JplVector(BodyId.CERES, Instant.EPOCH, new Vector3Au(1,2,3), "", "");
+        });
+        try (var pool = Executors.newFixedThreadPool(4)) {
+            var first = pool.submit(() -> provider.heliocentricPosition(BodyId.CERES, Instant.EPOCH));
+            try {
+                assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                var duplicate = pool.submit(() -> provider.heliocentricPosition(BodyId.CERES, Instant.EPOCH));
+                assertThat(pool.submit(() -> provider.heliocentricPosition(BodyId.HALLEY, Instant.EPOCH))
+                    .get(1, java.util.concurrent.TimeUnit.SECONDS)).isNotNull();
+                assertThat(pool.submit(() -> provider.heliocentricPosition(BodyId.VESTA, Instant.EPOCH))
+                    .get(1, java.util.concurrent.TimeUnit.SECONDS)).isNotNull();
+                release.countDown();
+                assertThat(duplicate.get()).isEqualTo(first.get());
+            } finally { release.countDown(); }
+        }
+        verify(client, times(1)).vector(BodyId.CERES, Instant.EPOCH);
+    }
+
     @Test void orbitWrappingPreservesSubDayMotion() {
         var start = Instant.parse("2024-01-01T00:00:00Z");
         var samples = List.of(new JplEphemerisProvider.TrajectorySample(start, new Vector3Au(1,0,0)),

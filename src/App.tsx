@@ -12,7 +12,7 @@ import {
   type CatalogEventType,
 } from "./domain/eventTypes";
 import { findClosestApproach, getBodyPositions } from "./lib/ephemeris";
-import useSmallBodyTrajectories from "./lib/useSmallBodyTrajectories";
+import useSmallBodyTrajectories, { trajectoryCoverageNotice } from "./lib/useSmallBodyTrajectories";
 import { useSimulationClock } from "./lib/useSimulationClock";
 import { interpolateTrajectory } from "./lib/smallBodyTrajectory";
 import { findNextEvent, findPreviousEvent, SEARCH_HORIZON_YEARS, type CatalogEventResult } from "./lib/eventCatalogApi";
@@ -291,7 +291,8 @@ export default function App() {
         currentTime={currentTime}
         eventPairIsValid={eventPairIsValid}
         eventResult={eventResult}
-        eventStatus={eventStatus ?? trajectoryError}
+        eventStatus={eventStatus}
+        trajectoryStatus={[trajectoryError, trajectoryCoverageNotice(visibleBodies, smallBodyTrajectories, currentTime)].filter(Boolean).join(" ") || null}
         eventBodyA={eventBodyA}
         eventBodyB={eventBodyB}
         eventType={eventType}

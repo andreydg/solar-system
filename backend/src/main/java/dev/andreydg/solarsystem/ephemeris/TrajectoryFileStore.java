@@ -112,11 +112,39 @@ public class TrajectoryFileStore {
         try (var stream = getClass().getResourceAsStream("/trajectories/" + body.apiValue() + "-v1.txt")) {
             if (stream == null) throw new IllegalStateException("Missing bundled trajectory for " + body);
             String response = new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-            var samples = dev.andreydg.solarsystem.jpl.JplHorizonsClient.parseVectors(body, response).stream()
-                .map(vector -> new TrajectorySample(vector.requestedTimeUtc(), vector.positionAu())).toList();
-            if (!validSamples(samples)) throw new IllegalStateException("Invalid bundled trajectory for " + body);
-            return samples;
+            return parseBundled(body, response);
         } catch (java.io.IOException exception) { throw new IllegalStateException("Cannot read bundled trajectory", exception); }
+    }
+
+    static List<TrajectorySample> parseBundled(BodyId body, String response) {
+        String target = switch (body) {
+            case CERES -> "1 Ceres (A801 AA)";
+            case VESTA -> "4 Vesta (A807 FA)";
+            case ENCKE -> "2P/Encke";
+            case HALLEY -> "1P/Halley";
+            default -> throw new IllegalArgumentException("No bundled trajectory for " + body);
+        };
+        int start = response.indexOf("$SOE");
+        if (start < 0) throw new IllegalStateException("Missing trajectory data");
+        String header = response.substring(0, start);
+        for (String required : List.of(
+            "^Target body name:\\s*" + java.util.regex.Pattern.quote(target) + "\\s+\\{",
+            "^Center body name:\\s*Sun \\(10\\)",
+            "^Center-site name:\\s*BODY CENTER",
+            "^Output units\\s*:\\s*AU-D\\s*$",
+            "^Calendar mode\\s*:\\s*Gregorian\\s*$",
+            "^Output type\\s*:\\s*GEOMETRIC cartesian states\\s*$",
+            "^Reference frame\\s*:\\s*Ecliptic of J2000\\.0\\s*$",
+            "^Start time\\s*:[^\\r\\n]+ UT\\s*$",
+            "^Stop  time\\s*:[^\\r\\n]+ UT\\s*$",
+            "Calendar Date \\(UT \\)")) {
+            if (!java.util.regex.Pattern.compile(required, java.util.regex.Pattern.MULTILINE).matcher(header).find())
+                throw new IllegalStateException("Invalid bundled trajectory metadata for " + body);
+        }
+        var samples = dev.andreydg.solarsystem.jpl.JplHorizonsClient.parseVectors(body, response).stream()
+            .map(vector -> new TrajectorySample(vector.requestedTimeUtc(), vector.positionAu())).toList();
+        if (!validSamples(samples)) throw new IllegalStateException("Invalid bundled trajectory for " + body);
+        return samples;
     }
 
     private static boolean validSamples(List<TrajectorySample> samples) {

@@ -24,14 +24,22 @@ public class SmallBodyTrajectoryService {
 
     private final ConcurrentMap<BodyId, java.util.concurrent.CompletableFuture<List<TrajectorySample>>> loading = new ConcurrentHashMap<>();
     private final ConcurrentMap<BodyId, FailedLoad> failures = new ConcurrentHashMap<>();
+    private final java.time.Clock clock;
     private record FailedLoad(Instant retryAfter, RuntimeException error) {}
 
 
+    @org.springframework.beans.factory.annotation.Autowired
     public SmallBodyTrajectoryService(
         JplEphemerisProvider jplEphemerisProvider,
         TrajectoryFileStore trajectoryFileStore,
         TrajectoryCacheProperties trajectoryCacheProperties
     ) {
+        this(jplEphemerisProvider, trajectoryFileStore, trajectoryCacheProperties, java.time.Clock.systemUTC());
+    }
+
+    SmallBodyTrajectoryService(JplEphemerisProvider jplEphemerisProvider, TrajectoryFileStore trajectoryFileStore,
+        TrajectoryCacheProperties trajectoryCacheProperties, java.time.Clock clock) {
+        this.clock = clock;
         this.jplEphemerisProvider = jplEphemerisProvider;
         this.trajectoryFileStore = trajectoryFileStore;
         this.trajectoryCacheProperties = trajectoryCacheProperties;
@@ -48,7 +56,7 @@ public class SmallBodyTrajectoryService {
         }
 
         FailedLoad failed = failures.get(body);
-        if (failed != null && Instant.now().isBefore(failed.retryAfter())) throw failed.error();
+        if (failed != null && clock.instant().isBefore(failed.retryAfter())) throw failed.error();
         var mine = new java.util.concurrent.CompletableFuture<List<TrajectorySample>>();
         var existing = loading.putIfAbsent(body, mine);
         if (existing != null) {
@@ -62,14 +70,14 @@ public class SmallBodyTrajectoryService {
             // Recheck after winning ownership: another load may have just completed.
             cached = cache.get(body);
             if (cached != null) { mine.complete(cached); return cached; }
-            List<TrajectorySample> loaded = loadTrajectory(body);
+            List<TrajectorySample> loaded = List.copyOf(loadTrajectory(body));
             if (loaded.isEmpty()) throw new dev.andreydg.solarsystem.jpl.JplHorizonsException("Empty trajectory", true);
             cache.put(body, loaded);
             failures.remove(body);
             mine.complete(loaded);
             return loaded;
         } catch (RuntimeException ex) {
-            failures.put(body, new FailedLoad(Instant.now().plusSeconds(10), ex));
+            failures.put(body, new FailedLoad(clock.instant().plusSeconds(10), ex));
             mine.completeExceptionally(ex);
             throw ex;
         } catch (Error fatal) {

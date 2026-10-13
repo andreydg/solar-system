@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { CATALOG_MIN_TIME, CATALOG_MAX_TIME } from "./eventCatalogApi";
 
 export function advanceClock(time: Date, elapsedMs: number, daysPerSecond: number) {
@@ -6,15 +6,20 @@ export function advanceClock(time: Date, elapsedMs: number, daysPerSecond: numbe
   return new Date(Math.min(CATALOG_MAX_TIME.getTime(), Math.max(CATALOG_MIN_TIME.getTime(), next)));
 }
 
-/** At most 10 React updates/sec; no loop while paused or hidden, no catch-up jump. */
+/** Follow display refresh while visible; cap stalls and never catch up hidden time. */
 export function useSimulationClock(playing: boolean, speed: number, update: (fn: (time: Date) => Date) => void) {
+  const speedRef = useRef(speed);
+  useEffect(() => { speedRef.current = speed; }, [speed]);
   useEffect(() => {
     let frame = 0;
     let last: number | null = null;
     const tick = (now: number) => {
       if (document.hidden) { last = null; return; }
-      if (last === null) last = now;
-      if (now - last >= 100) { const elapsed = now - last; update(time => advanceClock(time, elapsed, speed)); last = now; }
+      if (last !== null && now > last) {
+        const elapsed = now - last;
+        update(time => advanceClock(time, elapsed, speedRef.current));
+      }
+      last = now;
       frame = requestAnimationFrame(tick);
     };
     const restart = () => {
@@ -25,5 +30,5 @@ export function useSimulationClock(playing: boolean, speed: number, update: (fn:
     restart();
     document.addEventListener("visibilitychange", restart);
     return () => { cancelAnimationFrame(frame); document.removeEventListener("visibilitychange", restart); };
-  }, [playing, speed, update]);
+  }, [playing, update]);
 }

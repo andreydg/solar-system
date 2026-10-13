@@ -344,6 +344,21 @@ fallback, and Retry remounts only the scene, preserving the current view control
 If the lazy JavaScript chunk fails again on Retry (for example after deployment),
 the browser reloads once to obtain the current asset manifest.
 
+### Trajectory and rendering recovery
+
+Trajectory reads use the independent cached-read pool and compressed JSON. Adding
+another body does not cancel already-wanted downloads. Transient failures get at
+most two automatic retries, respecting Retry-After; hiding a body or unmounting
+cancels both the request and its backoff. Persistent errors remain visible beside
+event status. Dates outside a loaded snapshot explicitly show a repeated-orbit
+approximation warning. Bundled snapshots must match the target, Sun-centred
+geometric ecliptic frame, AU-D units and UT/Gregorian time metadata before use.
+
+The visible simulation follows requestAnimationFrame cadence; it is not limited
+to 10 fps. Hidden tabs pause without catch-up, stalls are capped at 250 ms, and
+changing the speed does not restart the clock. Long-lived asset cache headers are
+set only after successful resource resolution; missing assets remain no-store.
+
 ## Credits
 
 Planet, Sun, and moon surface textures (`public/textures/`) are the solar-system

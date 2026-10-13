@@ -23,20 +23,40 @@ public class JplEphemerisProvider implements EphemerisProvider {
             return size() > MAX_POINT_CACHE;
         }
     };
-    synchronized int cachedPointCount() { return cache.size(); }
+    private final java.util.concurrent.ConcurrentMap<CacheKey, java.util.concurrent.CompletableFuture<Vector3Au>> loading = new java.util.concurrent.ConcurrentHashMap<>();
+    int cachedPointCount() { synchronized (cache) { return cache.size(); } }
 
     public JplEphemerisProvider(JplHorizonsClient horizonsClient) {
         this.horizonsClient = horizonsClient;
     }
 
     @Override
-    public synchronized Vector3Au heliocentricPosition(BodyId body, Instant timeUtc) {
+    public Vector3Au heliocentricPosition(BodyId body, Instant timeUtc) {
         if (!body.isSmallBody()) {
             throw new IllegalArgumentException("JPL ephemeris is only configured for small bodies: " + body);
         }
 
         CacheKey key = new CacheKey(body, timeUtc);
-        return cache.computeIfAbsent(key, ignored -> horizonsClient.vector(body, timeUtc).positionAu());
+        synchronized (cache) { if (cache.containsKey(key)) return cache.get(key); }
+        var mine = new java.util.concurrent.CompletableFuture<Vector3Au>();
+        var existing = loading.putIfAbsent(key, mine);
+        if (existing != null) {
+            try { return existing.join(); }
+            catch (java.util.concurrent.CompletionException ex) { throw (RuntimeException) ex.getCause(); }
+        }
+        try {
+            synchronized (cache) {
+                if (cache.containsKey(key)) { var value = cache.get(key); mine.complete(value); return value; }
+            }
+            // No cache monitor is held across remote I/O.
+            var value = horizonsClient.vector(body, timeUtc).positionAu();
+            synchronized (cache) { cache.put(key, value); }
+            mine.complete(value);
+            return value;
+        } catch (RuntimeException ex) {
+            mine.completeExceptionally(ex);
+            throw ex;
+        } finally { loading.remove(key, mine); }
     }
 
     public List<HeliocentricDistanceSample> heliocentricDistanceSamples(

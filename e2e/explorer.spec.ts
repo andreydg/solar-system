@@ -251,3 +251,64 @@ test("failed scene chunk leaves controls usable with a retry action", async ({ p
   await expect(page.getByRole("button", { name: "Retry 3D view" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Today", exact: true })).toBeEnabled();
 });
+
+test("adding small bodies and toggling planets does not abort or reload wanted trajectories", async ({ page }) => {
+  const requested: string[] = [];
+  const failed: string[] = [];
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  page.on("requestfailed", request => { if (request.url().includes("/api/ephemeris/trajectory")) failed.push(request.url()); });
+  await page.route("**/api/ephemeris/trajectory?**", async route => {
+    requested.push(new URL(route.request().url()).searchParams.get("body")!);
+    await gate;
+    await route.continue();
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  for (const body of ["Ceres", "Vesta", "Encke", "Halley"])
+    await page.getByRole("checkbox", { name: body, exact: true }).check();
+  await page.getByRole("checkbox", { name: "Mercury", exact: true }).uncheck();
+  await expect.poll(() => requested.length).toBe(4);
+  release();
+  await expect(page.getByRole("button", { name: "Halley", exact: true })).toBeVisible();
+  expect(requested.sort()).toEqual(["ceres", "encke", "halley", "vesta"]);
+  expect(failed).toEqual([]);
+});
+
+test("trajectory 429 retries automatically and far-date approximation is labelled", async ({ page }) => {
+  let requests = 0;
+  await page.route("**/api/ephemeris/trajectory?body=halley", route => {
+    requests++;
+    return requests === 1 ? route.fulfill({ status: 429, headers: { "Retry-After": "1" }, json: { message: "busy" } }) : route.continue();
+  });
+  await page.goto("/");
+  await page.getByLabel("Jump to date (UTC)").fill("1700-01-01T00:00");
+  await page.getByRole("checkbox", { name: "Halley", exact: true }).check();
+  await expect(page.getByText(/Halley: repeated-orbit approximation/)).toBeVisible();
+  expect(requests).toBe(2);
+});
+
+test("trajectory errors remain visible beside event status", async ({ page }) => {
+  await page.route("**/api/events?**", route => route.fulfill({ json: [event] }));
+  await page.goto("/");
+  await page.getByRole("checkbox", { name: "Halley", exact: true }).check();
+  await page.getByRole("button", { name: "Find", exact: true }).click();
+  await expect(page.getByText(/Halley's path could not load/)).toBeVisible();
+  await expect(page.getByText(/Provisional.*queued/)).toBeVisible();
+});
+
+test("successful assets are cacheable, missing assets are not, and JSON is compressed", async ({ request }) => {
+  const html = await (await request.get("/")).text();
+  const asset = html.match(/src="(\/assets\/[^"]+\.js)"/)?.[1];
+  expect(asset).toBeTruthy();
+  const present = await request.get(asset!);
+  expect(present.ok()).toBeTruthy();
+  expect(present.headers()["cache-control"]).toContain("immutable");
+  const missing = await request.get("/assets/never-built-review.js");
+  expect(missing.status()).toBe(404);
+  expect(missing.headers()["cache-control"]).toBe("no-store");
+  const trajectory = await request.get("/api/ephemeris/trajectory?body=halley", { headers: { "Accept-Encoding": "gzip" } });
+  expect(trajectory.ok()).toBeTruthy();
+  expect(trajectory.headers()["content-encoding"]).toBe("gzip");
+  expect((await trajectory.json()).length).toBeGreaterThan(10000);
+});

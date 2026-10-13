@@ -23,6 +23,7 @@ type ControlPanelProps = {
   eventPairIsValid: boolean;
   eventResult: EventResultView | null;
   eventStatus: string | null;
+  trajectoryStatus?: string | null;
   eventType: ApiCatalogEventType;
   isPlaying: boolean;
   isSearching: boolean;
@@ -68,6 +69,7 @@ export default function ControlPanel({
   eventPairIsValid,
   eventResult,
   eventStatus,
+  trajectoryStatus,
   eventType,
   isPlaying,
   isSearching,
@@ -160,6 +162,8 @@ export default function ControlPanel({
           ))}
         </div>
       </section>
+
+      {trajectoryStatus ? <p className="status-text" role="status">{trajectoryStatus}</p> : null}
 
       <section className="control-section">
         <h2>Events</h2>
