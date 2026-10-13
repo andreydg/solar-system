@@ -129,7 +129,8 @@ inserted in the same transaction. Queries never schedule retries or mutate jobs.
 A single Firestore lease limits validation work across instances. Job leases last
 ten minutes; abandoned work becomes eligible again. Completion updates the event
 and job atomically and is fenced by the lease token, so a late worker cannot
-overwrite a newer result. Transient failures retry up to 12 attempts, starting at five minutes and capping\nat six hours (over 24 hours of outage coverage);
+overwrite a newer result. Transient failures retry up to 12 attempts, starting at five minutes and capping
+at six hours (over 24 hours of outage coverage);
 permanent/exhausted failures stop until an administrator explicitly requeues them.
 
 Configure **one** deployment-level scheduler to POST `/api/admin/validation/drain`
@@ -144,7 +145,14 @@ pauses claims without losing work. Restore it to resume.
 Run the catalog migration command below (dry-run first, then apply) to backfill
 jobs for old PENDING documents. It does not automatically retry FAILED records.
 Authenticated POST `/api/validation/jpl/event/{eventId}` explicitly requeues an
-event and returns 202 **without clearing accepted values**. Revalidation failures\nleave the last accepted result available; errors belong to the job. A failed\nresult commit is retried as a storage failure, not a scientific rejection.\n\nAfter recovering from an outage, POST `/api/admin/validation/requeue-exhausted?limit=100`\nwith the admin token. Follow its `nextCursor` as `after` until null. This explicit,\nbounded recovery only resets exhausted retries, not scientific rejections. Repair\nmalformed source documents before requeuing them individually. Inspect terminal `state=failed` job documents and alert on
+event and returns 202 **without clearing accepted values**. Revalidation failures
+leave the last accepted result available; errors belong to the job. A failed
+result commit is retried as a storage failure, not a scientific rejection.
+
+After recovering from an outage, POST `/api/admin/validation/requeue-exhausted?limit=100`
+with the admin token. Follow its `nextCursor` as `after` until null. This explicit,
+bounded recovery only resets exhausted retries, not scientific rejections. Repair
+malformed source documents before requeuing them individually. Inspect terminal `state=failed` job documents and alert on
 old `availableAt` times or growing backlog. No periodic browser/database polling
 is introduced; only the single configured worker trigger checks for due jobs.
 
