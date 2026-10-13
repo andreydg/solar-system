@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { configDefaults } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
@@ -10,7 +11,7 @@ export default defineConfig({
     },
   },
   test: {
-    exclude: ["e2e/**", "node_modules/**", "dist/**"],
+    exclude: [...configDefaults.exclude, "e2e/**", "dist/**"],
     // Run the R3F packages as ES modules, like the browser does. Their `main` entries are
     // CommonJS, which load a second, CommonJS copy of three (R3F then treats our ES math objects,
     // e.g. a Quaternion prop, as a foreign type) and, when mixed, a second R3F (so drei's hooks

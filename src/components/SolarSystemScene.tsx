@@ -26,6 +26,13 @@ const PLANET_TEXTURES: Record<string, string> = {
   neptune: "/textures/neptunemap.jpg",
 };
 
+// Only invoked after a failed scene load, so successful visits keep their texture cache.
+// eslint-disable-next-line react-refresh/only-export-components -- Called only after this lazy scene module loads.
+export function resetSceneResources() {
+  for (const url of [...Object.values(PLANET_TEXTURES), "/textures/sunmap.jpg"])
+    useTexture.clear(url);
+}
+
 // Limb haze for planets with visible atmospheres; intensity is relative, tuned by eye.
 const ATMOSPHERES: Partial<Record<BodyId, { color: string; intensity: number }>> = {
   venus: { color: "#f5deb0", intensity: 0.75 },
@@ -74,7 +81,7 @@ const atmosphereFragmentShader = `
   }
 `;
 
-type SolarSystemSceneProps = {
+export type SolarSystemSceneProps = {
   currentTime: Date;
   focusedBody: BodyId | null;
   highlightedBodies: BodyId[];

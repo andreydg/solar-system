@@ -100,11 +100,12 @@ export function findClosestApproach(
   const sign = direction === "next" ? 1 : -1;
   const anchor = direction === "next" ? start.getTime() : end.getTime();
   const distance = (ms: number) => distanceAu(getBodyPosition(bodyA, new Date(ms)).positionAu, getBodyPosition(bodyB, new Date(ms)).positionAu);
-  for (let center = anchor + sign * step; center > start.getTime() && center < end.getTime(); center += sign * step) {
+  for (let center = anchor; center >= start.getTime() && center <= end.getTime(); center += sign * step) {
     if (distance(center) < distance(center - step) && distance(center) < distance(center + step)) {
-      const best = findClosestInWindow(bodyA, bodyB, new Date(Math.max(start.getTime(), center - step)),
-        new Date(Math.min(end.getTime(), center + step)), 1 / 24);
-      return { bodyA, bodyB, time: best.time, distanceAu: best.distanceAu, distanceKm: best.distanceAu * AU_KM, refinementStepDays: 1 / 24 };
+      const best = findClosestInWindow(bodyA, bodyB, new Date(center - step), new Date(center + step), 1 / (24 * 60));
+      // Samples on both sides of the anchor establish a true minimum near the boundary.
+      if (best.time.getTime() <= start.getTime() || best.time.getTime() >= end.getTime()) continue;
+      return { bodyA, bodyB, time: best.time, distanceAu: best.distanceAu, distanceKm: best.distanceAu * AU_KM, refinementStepDays: 1 / (24 * 60) };
     }
   }
   return null;
