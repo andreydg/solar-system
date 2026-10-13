@@ -10,7 +10,8 @@ import java.util.List;
 import java.util.Optional;
 
 public interface EventCatalogRepository {
-    void upsertAll(List<CatalogEvent> events);
+    /** Create missing events without overwriting existing validation; return stored records. */
+    List<CatalogEvent> upsertAll(List<CatalogEvent> events);
 
     default List<CatalogEvent> find(
         EventType type,

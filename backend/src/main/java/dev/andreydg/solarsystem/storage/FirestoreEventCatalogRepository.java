@@ -2,7 +2,6 @@ package dev.andreydg.solarsystem.storage;
 
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
-import com.google.cloud.firestore.WriteBatch;
 import com.google.cloud.firestore.Query;
 import com.google.cloud.firestore.FieldPath;
 import com.google.cloud.Timestamp;
@@ -31,7 +30,7 @@ import org.springframework.stereotype.Repository;
 public class FirestoreEventCatalogRepository implements EventCatalogRepository {
     private static final Logger log = LoggerFactory.getLogger(FirestoreEventCatalogRepository.class);
     // Firestore caps a batched write at 500 operations; stay under it with margin.
-    private static final int MAX_BATCH_SIZE = 450;
+    private static final int MAX_BATCH_SIZE = 200;
 
     private final Firestore firestore;
     private final String collection;
@@ -43,21 +42,26 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
     }
 
     @Override
-    public void upsertAll(List<CatalogEvent> events) {
-        if (events.isEmpty()) {
-            return;
-        }
-
+    public List<CatalogEvent> upsertAll(List<CatalogEvent> events) {
+        List<CatalogEvent> stored = new ArrayList<>();
         try {
-            // Commit in batches instead of one round-trip per document.
             for (int start = 0; start < events.size(); start += MAX_BATCH_SIZE) {
                 List<CatalogEvent> chunk = events.subList(start, Math.min(start + MAX_BATCH_SIZE, events.size()));
-                WriteBatch batch = firestore.batch();
-                for (CatalogEvent event : chunk) {
-                    batch.set(firestore.collection(collection).document(event.id()), toDocument(event));
-                }
-                batch.commit().get();
+                stored.addAll(firestore.runTransaction(transaction -> {
+                    var refs = chunk.stream().map(event -> firestore.collection(collection).document(event.id())).toList();
+                    var snapshots = transaction.getAll(refs.toArray(com.google.cloud.firestore.DocumentReference[]::new)).get();
+                    List<CatalogEvent> actual = new ArrayList<>();
+                    for (int i = 0; i < chunk.size(); i++) {
+                        if (snapshots.get(i).exists()) actual.add(fromDocument(snapshots.get(i).getData()));
+                        else {
+                            transaction.create(refs.get(i), toDocument(chunk.get(i)));
+                            actual.add(chunk.get(i));
+                        }
+                    }
+                    return actual;
+                }).get());
             }
+            return stored;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new EventCatalogStorageException("Interrupted while writing events", e);
@@ -113,6 +117,13 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
             Thread.currentThread().interrupt();
             throw new EventCatalogStorageException("Interrupted while querying events", e);
         } catch (ExecutionException e) {
+            for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+                if (cause instanceof com.google.api.gax.rpc.ApiException api
+                    && api.getStatusCode().getCode() == com.google.api.gax.rpc.StatusCode.Code.FAILED_PRECONDITION) {
+                    throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                        "Catalog indexes are not ready; retry after index deployment", e);
+                }
+            }
             throw new EventCatalogStorageException("Failed to query events", e);
         }
     }

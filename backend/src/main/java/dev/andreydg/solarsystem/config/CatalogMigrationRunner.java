@@ -13,15 +13,19 @@ public class CatalogMigrationRunner implements CommandLineRunner {
     private final Firestore firestore;
     private final FirestoreProperties properties;
     private final boolean apply;
+    private final org.springframework.context.ConfigurableApplicationContext context;
     public CatalogMigrationRunner(Firestore firestore, FirestoreProperties properties,
-        @Value("${solar-system.migration.apply:false}") boolean apply) {
+        @Value("${solar-system.migration.apply:false}") boolean apply, org.springframework.context.ConfigurableApplicationContext context) {
         this.firestore = firestore;
         this.properties = properties;
         this.apply = apply;
+        this.context = context;
     }
     @Override public void run(String... args) throws Exception {
+        try {
         var result = new FirestoreIndexMigration(firestore, properties.collection()).run(apply);
         System.out.println("Catalog migration " + (apply ? "APPLY" : "DRY RUN") + ": " + result);
         if (result.malformed() > 0) throw new IllegalStateException("Repair malformed records and rerun; migration was not activated");
+        } finally { context.close(); }
     }
 }

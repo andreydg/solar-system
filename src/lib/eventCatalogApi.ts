@@ -183,9 +183,17 @@ async function queryEvents(
     descending: String(descending),
   });
 
-  const response = await fetch(`/api/events?${params.toString()}`);
-  await assertOk(response);
-  return (await response.json()) as ApiEvent[];
+  // A filtered/corrupt document can leave an empty page with more data.
+  for (let page = 0; page < 20; page++) {
+    const response = await fetch(`/api/events?${params.toString()}`);
+    await assertOk(response);
+    const events = (await response.json()) as ApiEvent[];
+    if (events.length) return events;
+    const cursor = response.headers.get("X-Next-Cursor");
+    if (!cursor) return [];
+    params.set("cursor", cursor);
+  }
+  throw new Error("Catalog scan limit reached; narrow the date range and retry.");
 }
 
 async function generateEvents(

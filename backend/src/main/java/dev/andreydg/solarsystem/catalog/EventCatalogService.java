@@ -55,25 +55,6 @@ public class EventCatalogService {
         this.eventPublisher = eventPublisher;
     }
 
-    public List<CatalogEvent> query(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
-        CatalogLimits.checkRange(from, to);
-        validateRequest(type, bodyA, bodyB);
-        List<CatalogEvent> events = repository.find(type, bodyA, bodyB, from, to).stream()
-            .filter(this::isStoredEventValid)
-            .toList();
-        List<String> retryableIds = events.stream()
-            .filter(event -> event.validationStatus() == ValidationStatus.FAILED)
-            .filter(event -> event.type().supportsJplValidation())
-            .map(CatalogEvent::id)
-            .toList();
-
-        if (!retryableIds.isEmpty()) {
-            eventPublisher.publishEvent(new CatalogEventsGeneratedEvent(retryableIds));
-        }
-
-        return events;
-    }
-
     public List<CatalogEvent> generate(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
         CatalogLimits.checkRange(from, to);
         try (var budget = GenerationBudget.start()) {
@@ -84,7 +65,7 @@ public class EventCatalogService {
     private List<CatalogEvent> generateWithinBudget(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
         validateRequest(type, bodyA, bodyB);
         var window = new EmptyWindowCache.Key(type, CatalogQuery.pairKey(bodyA, bodyB), from, to);
-        if (emptyWindows.contains(window)) return repository.find(type, bodyA, bodyB, from, to);
+        if (emptyWindows.contains(window)) return List.of();
         BodyPair pair = BodyPair.of(bodyA, bodyB);
         List<CatalogEvent> events = switch (type) {
             case CLOSEST_APPROACH -> generateExtremalApproaches(
@@ -123,19 +104,10 @@ public class EventCatalogService {
             throw new IllegalArgumentException("Too many events; choose a smaller date window");
         }
 
-        List<CatalogEvent> existingEvents = repository.find(type, bodyA, bodyB, from, to);
-        Map<String, CatalogEvent> existingById = existingEvents.stream()
-            .collect(Collectors.toMap(CatalogEvent::id, e -> e, (first, second) -> first));
+        List<CatalogEvent> stored = repository.upsertAll(validEvents);
 
-        List<CatalogEvent> eventsToStore = validEvents.stream()
-            .filter(event -> !existingById.containsKey(event.id()))
-            .toList();
-
-        if (!eventsToStore.isEmpty()) {
-            repository.upsertAll(eventsToStore);
-        }
-
-        List<String> validatableIds = eventsToStore.stream()
+        List<String> validatableIds = stored.stream()
+            .filter(event -> event.validationStatus() == ValidationStatus.PENDING)
             .filter(event -> event.type().supportsJplValidation())
             .map(CatalogEvent::id)
             .toList();
@@ -146,9 +118,7 @@ public class EventCatalogService {
 
         if (validEvents.isEmpty()) emptyWindows.remember(window);
 
-        return validEvents.stream()
-            .map(event -> existingById.getOrDefault(event.id(), event))
-            .toList();
+        return stored;
     }
 
     public List<CatalogEvent> listValidatedEvents(

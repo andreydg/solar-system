@@ -75,6 +75,25 @@ class FirestoreCatalogTests {
         assertThat(repository.search(query(false, 2, first.nextCursor())).events()).extracting(CatalogEvent::id).containsExactly("c");
     }
 
+    @Test void generationCannotReplaceValidatedLegacyDocumentOmittedByIndex() throws Exception {
+        var accepted = event("legacy-accepted", TIME, BodyId.MARS);
+        var legacy = new HashMap<>(FirestoreEventCatalogRepository.toDocument(accepted));
+        for (String field : List.of("displayTime", "pairKey", "bodies", "readSchemaVersion")) legacy.remove(field);
+        firestore.collection(collection).document(accepted.id()).set(legacy).get();
+        var predicted = new CatalogEvent(accepted.id(), accepted.type(), accepted.bodyA(), accepted.bodyB(), TIME,
+            null, 179.0, null, "VSOP", null, null, null, null, null, ValidationStatus.PENDING,
+            TIME.minusSeconds(100), TIME.plusSeconds(200), TIME, null, null, null);
+        assertThat(repository.upsertAll(List.of(predicted))).containsExactly(accepted);
+        assertThat(repository.findById(accepted.id())).contains(accepted);
+    }
+
+    @Test void rejectsReservedFirestoreCursorIdsBeforeAccessingStorage() {
+        for (String id : List.of(".", "..", "__reserved__")) {
+            assertThatThrownBy(() -> query(false, 1, CatalogQuery.encode(TIME, id)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("Invalid pagination cursor");
+        }
+    }
+
     private CatalogQuery query(boolean descending, int limit, String cursor) {
         return new CatalogQuery(EventType.OPPOSITION, BodyId.MARS, BodyId.EARTH, TIME.minusSeconds(1), TIME.plusSeconds(20),
             true, descending, limit, cursor);

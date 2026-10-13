@@ -216,3 +216,16 @@ Planet, Sun, and moon surface textures (`public/textures/`) are the solar-system
 maps by **James Hastings-Trew — [Planet Pixel Emporium](https://planetpixelemporium.com/planets.html)**,
 used with credit per the author's usage terms. See
 [`public/textures/CREDITS.md`](public/textures/CREDITS.md).
+### Catalog rollback and retries
+
+After **any** rollback to an older writer, drain/stop that revision, rerun the
+index migration with `--solar-system.migration.apply=true`, and verify the
+indexes before enabling traffic on this version again. The readiness marker is
+not a live detector of writes from old binaries. Never run old and new writers
+against the collection concurrently. New generation uses create-only transactions
+so an existing validated event is never downgraded even when a legacy document is
+missing from the indexed query.
+
+Public catalog reads never schedule validation retries. Use the authenticated
+POST validation endpoint to request retries; reads must remain free of hidden
+JPL work. The durable-worker PR makes this an explicit queued operation.

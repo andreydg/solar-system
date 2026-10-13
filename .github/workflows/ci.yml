@@ -33,6 +33,8 @@ jobs:
           done
           if [ "$ready" != true ]; then cat /tmp/firestore.log; exit 1; fi
           mvn -B -f backend/pom.xml test -Pfirestore-tests
+          mvn -B -f backend/pom.xml package -DskipTests
+          node scripts/test-migration.mjs
 
   backend:
     name: Backend (Maven)

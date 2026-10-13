@@ -24,8 +24,8 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
   const [filterBodyA, setFilterBodyA] = useState<BodyId | typeof ALL_FILTER>(ALL_FILTER);
   const [filterBodyB, setFilterBodyB] = useState<BodyId | typeof ALL_FILTER>(ALL_FILTER);
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
-  const [from, setFrom] = useState(() => new Date().toISOString().slice(0, 10));
-  const [to, setTo] = useState(() => `${new Date().getUTCFullYear() + 5}-12-31`);
+  const [from, setFrom] = useState("1600-01-01");
+  const [to, setTo] = useState("2999-12-31");
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [activeQuery, setActiveQuery] = useState<ValidatedEventQuery | null>(null);
 
@@ -49,7 +49,7 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
       to: `${to}T23:59:59Z`,
       descending: sortOrder === "desc",
     };
-    if (!from || !to || from > to) { setError("Choose an increasing date range."); return; }
+    if (!more && (!from || !to || from > to)) { setError("Choose an increasing date range."); return; }
     setLoading(true);
     setError(null);
     if (!more) { setEvents([]); setNextCursor(null); setActiveQuery(query); }
@@ -155,6 +155,10 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
         </div>
 
         <div className="validated-events-scroll">
+          {activeQuery ? <p className="status-text">
+            Results for {activeQuery.from?.slice(0, 10)} – {activeQuery.to?.slice(0, 10)},
+            {activeQuery.descending ? " latest first" : " earliest first"}. Selector changes apply when you click Query.
+          </p> : null}
           {error ? <p className="status-text">{error}</p> : null}
           {!loading && !error && !hasQueried ? (
             <p className="status-text">Choose criteria and run a query to list validated events.</p>

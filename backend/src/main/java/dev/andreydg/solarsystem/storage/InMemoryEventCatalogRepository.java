@@ -21,8 +21,8 @@ public class InMemoryEventCatalogRepository implements EventCatalogRepository {
     private final ConcurrentMap<String, CatalogEvent> events = new ConcurrentHashMap<>();
 
     @Override
-    public void upsertAll(List<CatalogEvent> events) {
-        events.forEach(this::upsert);
+    public List<CatalogEvent> upsertAll(List<CatalogEvent> events) {
+        return events.stream().map(event -> this.events.computeIfAbsent(event.id(), id -> event)).toList();
     }
 
     @Override

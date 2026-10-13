@@ -38,6 +38,7 @@ public record CatalogQuery(EventType type, BodyId bodyA, BodyId bodyB, Instant f
             if (cursor.length() > 512) throw new IllegalArgumentException();
             String[] parts = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8).split("\\|", -1);
             if (parts.length != 2 || !parts[1].matches("[A-Za-z0-9_.:-]{1,180}")) throw new IllegalArgumentException();
+            if (parts[1].equals(".") || parts[1].equals("..") || parts[1].matches("__.*__")) throw new IllegalArgumentException();
             Instant time = Instant.parse(parts[0]);
             CatalogLimits.checkTime(time);
             return new Position(time, parts[1]);
