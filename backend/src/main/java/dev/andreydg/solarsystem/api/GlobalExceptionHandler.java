@@ -23,11 +23,23 @@ public class GlobalExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler({IllegalArgumentException.class, DateTimeParseException.class, MethodArgumentTypeMismatchException.class,
-        MissingServletRequestParameterException.class, HttpMessageNotReadableException.class})
+        MissingServletRequestParameterException.class})
     public ResponseEntity<Map<String, String>> handleBadRequest(Exception ex) {
         log.warn("Bad Request: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
             .body(Map.of("error", "Invalid request parameter", "message", ex.getMessage()));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, String>> handleUnreadable(HttpMessageNotReadableException ex) {
+        return ResponseEntity.badRequest().body(Map.of("message", "Invalid JSON request body"));
+    }
+
+    @ExceptionHandler({org.springframework.web.HttpMediaTypeNotSupportedException.class,
+        org.springframework.web.HttpMediaTypeNotAcceptableException.class})
+    public ResponseEntity<Map<String, String>> handleMedia(Exception ex) {
+        int status = ex instanceof org.springframework.web.HttpMediaTypeNotSupportedException ? 415 : 406;
+        return ResponseEntity.status(status).body(Map.of("message", status == 415 ? "Unsupported media type" : "Unacceptable response type"));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

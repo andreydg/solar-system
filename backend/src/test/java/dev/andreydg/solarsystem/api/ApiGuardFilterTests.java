@@ -41,6 +41,74 @@ class ApiGuardFilterTests {
             if (i == 60) assertThat(response.getHeader("Retry-After")).isEqualTo("60");
         }
     }
+    @Test void trustedProxyUsesOnlyTheConfiguredSuffixAndIsolatesClients() throws Exception {
+        var filter = new ApiGuardFilter("", Clock.fixed(Instant.EPOCH, ZoneOffset.UTC), 1);
+        for (int i = 0; i < 61; i++) {
+            var request = new MockHttpServletRequest("POST", "/api/events/generate");
+            request.addHeader("X-Forwarded-For", "192.0.2." + i + ", 203.0.113.1");
+            var response = new MockHttpServletResponse();
+            filter.doFilter(request, response, (req, res) -> {});
+            assertThat(response.getStatus()).isEqualTo(i < 60 ? 200 : 429);
+        }
+        var request = new MockHttpServletRequest("POST", "/api/events/generate");
+        request.addHeader("X-Forwarded-For", "203.0.113.2");
+        var response = new MockHttpServletResponse();
+        filter.doFilter(request, response, (req, res) -> {});
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test void shortTokensDisableAdminAndNormalizedBearerWorks() throws Exception {
+        var request = new MockHttpServletRequest("POST", "/api/admin/check");
+        var response = new MockHttpServletResponse();
+        new ApiGuardFilter("short").doFilter(request, response, (req, res) -> fail("disabled"));
+        assertThat(response.getStatus()).isEqualTo(503);
+        request.addHeader("Authorization", "bEaReR " + TOKEN);
+        response = new MockHttpServletResponse();
+        new ApiGuardFilter(TOKEN + "\n").doFilter(request, response, (req, res) -> {});
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test void countsUnknownLengthBodiesAndPreservesValidJson() throws Exception {
+        var filter = new ApiGuardFilter("");
+        for (int bytes : new int[] {20, 200_000}) {
+            var request = new MockHttpServletRequest("POST", "/api/events/generate") {
+                @Override public long getContentLengthLong() { return -1; }
+            };
+            request.setContent("x".repeat(bytes).getBytes());
+            request.addHeader("Transfer-Encoding", "chunked");
+            var response = new MockHttpServletResponse();
+            filter.doFilter(request, response, (req, res) ->
+                assertThat(req.getInputStream().readAllBytes()).hasSize(20));
+            assertThat(response.getStatus()).isEqualTo(bytes == 20 ? 200 : 413);
+        }
+    }
+
+    @Test void fourTrajectoryReadsCanLoadWhileGenerationIsBusy() throws Exception {
+        var filter = new ApiGuardFilter("");
+        var started = new CountDownLatch(6);
+        var release = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(6)) {
+            var futures = new java.util.ArrayList<java.util.concurrent.Future<?>>();
+            for (int i = 0; i < 6; i++) {
+                String path = i < 2 ? "/api/events/generate" : "/api/ephemeris/trajectory";
+                futures.add(executor.submit(() -> {
+                    var response = new MockHttpServletResponse();
+                    filter.doFilter(new MockHttpServletRequest(iMethod(path), path), response, (req, res) -> {
+                        started.countDown();
+                        try { release.await(5, TimeUnit.SECONDS); }
+                        catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
+                    });
+                    assertThat(response.getStatus()).isEqualTo(200);
+                    return null;
+                }));
+            }
+            try { assertThat(started.await(5, TimeUnit.SECONDS)).isTrue(); }
+            finally { release.countDown(); }
+            for (var future : futures) future.get();
+        }
+    }
+    private static String iMethod(String path) { return path.endsWith("generate") ? "POST" : "GET"; }
+
     @Test void concurrentWorkIsRejectedRatherThanQueuedAndPermitsAreReleased() throws Exception {
         var filter = new ApiGuardFilter("");
         var started = new CountDownLatch(2);

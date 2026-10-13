@@ -122,9 +122,28 @@ preserving the original computed values for traceability.
 
 Generation/query windows must be increasing and at most 31 years; dates are bounded
 to 1600–3000. Generation has a cooperative 30-second calculation budget. Expensive
-HTTP work is limited to two concurrent requests and 60 admissions/minute **per
-instance**. Deploy an edge quota and cap Cloud Run instances for a global cost
-budget; this application limit intentionally does not trust client IP headers.
+generation is limited to two concurrent requests, independently of 32 cached-read
+and eight JPL-bound HTTP slots. Only admitted requests consume the per-client
+minute quotas (60 generation / 120 JPL-bound / 600 reads); a high 6,000/minute
+instance backstop and a bounded 4,096-client table protect memory. Deploy edge
+quotas and cap Cloud Run instances for a deployment-wide cost budget. Size Cloud
+Run concurrency to leave capacity for static files and health checks (at least 64).
+
+Direct local deployments ignore forwarded headers. Direct Cloud Run ingress
+(`K_SERVICE` present) trusts the last appended X-Forwarded-For address; override
+`solar-system.trusted-proxy-hops` for other topologies (0 disables header trust).
+Never enable it on directly reachable untrusted ingress. Behind an external Google
+load balancer, verify the appended chain: its last hop is the load balancer, not
+the visitor ([Google's header documentation](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
+Test two actual visitor IPs through your deployed ingress before increasing
+traffic; do not assume a fixed chain after changing proxies. Use an edge quota if
+the ingress cannot provide an authenticated client address.
+
+PRs #31–#37 are stacked. Retarget each next PR to `main` **after** its predecessor
+merges, then verify the remaining diff; do not merge it into a stale feature
+branch. Every main merge deploys: coordinate a maintenance rollout, index
+migration and worker scheduling before restoring traffic. Do not deploy
+intermediate layers or enable traffic without their documented prerequisites.
 
 Administrative `/api/validation/**` endpoints are disabled unless
 `SOLAR_SYSTEM_ADMIN_TOKEN` contains at least 32 characters. Send it as a Bearer
