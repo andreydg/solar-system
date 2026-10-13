@@ -194,7 +194,7 @@ public class JplHorizonsClient {
 
     private static void validateResponse(String response) {
         if (response.contains("No ephemeris")) {
-            throw new JplHorizonsException(extractHorizonsMessage(response));
+            throw new JplCoverageException(extractHorizonsMessage(response));
         }
 
         if (response.contains("Matching small-bodies:") || response.contains("To SELECT, enter record")) {

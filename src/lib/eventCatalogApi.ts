@@ -15,7 +15,7 @@ type ApiEvent = {
   angleDeg: number | null;
   magnitude: number | null;
   source: string;
-  validationStatus: "pending" | "validated" | "failed";
+  validationStatus: "pending" | "validated" | "failed" | "unavailable";
   computedTimeUtc: string;
   computedDistanceAu: number | null;
   computedAngleDeg: number | null;
@@ -48,7 +48,7 @@ export type CatalogEventResult = {
   time: Date;
   type: CatalogEventType;
   validatedSource: string | null;
-  validationStatus: "pending" | "validated" | "failed";
+  validationStatus: "pending" | "validated" | "failed" | "unavailable";
 };
 
 export type CatalogOptions = {
@@ -125,7 +125,9 @@ export async function findNextEvent(
       return toCatalogEventResult(queryResult[0]);
     }
 
-    const generated = await generateEvents(type, bodyA, bodyB, windowStart, windowEnd);
+    const generated = (await generateEvents(type, bodyA, bodyB, windowStart, windowEnd))
+      .filter(event => new Date(event.timeUtc) > after && new Date(event.timeUtc) >= windowStart && new Date(event.timeUtc) <= windowEnd)
+      .sort((a, b) => Date.parse(a.timeUtc) - Date.parse(b.timeUtc));
     if (generated.length > 0) {
       return toCatalogEventResult(generated[0]);
     }
@@ -154,7 +156,9 @@ export async function findPreviousEvent(
       return toCatalogEventResult(queryResult[queryResult.length - 1]);
     }
 
-    const generated = await generateEvents(type, bodyA, bodyB, windowStart, windowEnd);
+    const generated = (await generateEvents(type, bodyA, bodyB, windowStart, windowEnd))
+      .filter(event => new Date(event.timeUtc) < before && new Date(event.timeUtc) >= windowStart && new Date(event.timeUtc) <= windowEnd)
+      .sort((a, b) => Date.parse(a.timeUtc) - Date.parse(b.timeUtc));
     if (generated.length > 0) {
       return toCatalogEventResult(generated[generated.length - 1]);
     }

@@ -28,12 +28,21 @@ class EventCatalogServiceTests {
 
     @Autowired private dev.andreydg.solarsystem.storage.EventCatalogRepository repository;
 
+    @Test void aMonotonicOuterPairWindowDoesNotManufactureAnOutOfRangeExtremum() {
+        var from = Instant.parse("2026-01-01T00:00:00Z");
+        var to = Instant.parse("2051-01-01T00:00:00Z");
+        assertThat(service.generate(EventType.CLOSEST_APPROACH, BodyId.URANUS, BodyId.NEPTUNE, from, to)).isEmpty();
+        assertThat(service.generate(EventType.CLOSEST_APPROACH, BodyId.URANUS, BodyId.NEPTUNE, from, to)).isEmpty();
+        assertThat(service.search(new dev.andreydg.solarsystem.catalog.CatalogQuery(EventType.CLOSEST_APPROACH,
+            BodyId.URANUS, BodyId.NEPTUNE, from.minusSeconds(10000000), to, false, false, 100, null)).events()).isEmpty();
+    }
+
     @Test void negativeCacheDoesNotResurrectInvalidStoredTransit() {
         Instant from = Instant.parse("2035-01-01T00:00:00Z");
         Instant to = Instant.parse("2036-01-01T00:00:00Z");
         var bogus = new CatalogEvent("bogus-transit-review", EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from.plusSeconds(100),
             null, 45.0, null, "VSOP", null, null, null, null, null,
-            dev.andreydg.solarsystem.catalog.ValidationStatus.PENDING, from, to, from, null, null, null);
+            dev.andreydg.solarsystem.catalog.ValidationStatus.PENDING, from, to, from, null, null, null, 0);
         repository.upsert(bogus);
         assertThat(service.generate(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to)).isEmpty();
         assertThat(service.generate(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to)).isEmpty();

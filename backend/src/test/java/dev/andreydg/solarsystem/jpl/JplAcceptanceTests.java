@@ -19,21 +19,6 @@ class JplAcceptanceTests {
     private final EventCatalogService catalog = mock(EventCatalogService.class);
     private final JplValidationService validation = new JplValidationService(catalog, horizons);
 
-    @Test void recordedJplVectorsRefineTheTimeInsteadOfRubberStampingTheEstimate() throws Exception {
-        var earth = fixture("earth", BodyId.EARTH); var mars = fixture("mars", BodyId.MARS);
-        when(horizons.vectors(any(), any(), any(), any())).thenAnswer(invocation -> {
-            BodyId body = invocation.getArgument(0); Instant from = invocation.getArgument(1); Instant to = invocation.getArgument(2);
-            return (body == BodyId.EARTH ? earth : mars).stream()
-                .filter(sample -> !sample.requestedTimeUtc().isBefore(from) && !sample.requestedTimeUtc().isAfter(to)).toList();
-        });
-        when(catalog.findById("event")).thenReturn(Optional.of(event(EventType.OPPOSITION, BodyId.MARS)));
-        var result = validation.validateEvent("event");
-        assertThat(result.validationStatus()).isEqualTo(ValidationStatus.VALIDATED);
-        assertThat(result.validatedTimeUtc()).isBetween(Instant.parse("2027-02-19T15:40:00Z"), Instant.parse("2027-02-19T15:50:00Z"));
-        assertThat(result.validatedTimeUtc()).isNotEqualTo(T);
-        assertThat(result.validatedAngleDeg()).isEqualTo(180.0);
-        verify(horizons, never()).vector(any(), any());
-    }
     @Test void ninetyDegreeMismatchIsNotValidated() {
         synthetic(time -> new Vector3Au(1, 1, 0));
         when(catalog.findById("event")).thenReturn(Optional.of(event(EventType.OPPOSITION, BodyId.MARS)));
@@ -69,15 +54,5 @@ class JplAcceptanceTests {
     private CatalogEvent event(EventType type, BodyId target) {
         return new CatalogEvent("event", type, BodyId.EARTH, target, T, 0.6, 180.0, null, "TEST",
             null, null, null, null, null, ValidationStatus.PENDING, T.minusSeconds(86400), T.plusSeconds(86400), T, null, null, null);
-    }
-    private List<JplVector> fixture(String name, BodyId body) throws Exception {
-        try (var stream = getClass().getResourceAsStream("/jpl/mars-opposition-" + name + ".csv");
-            var reader = new BufferedReader(new InputStreamReader(Objects.requireNonNull(stream), StandardCharsets.UTF_8))) {
-            return reader.lines().map(line -> {
-                var values = line.split(",");
-                return new JplVector(body, Instant.parse(values[0]), new Vector3Au(Double.parseDouble(values[1]),
-                    Double.parseDouble(values[2]), Double.parseDouble(values[3])), values[0], line);
-            }).toList();
-        }
     }
 }

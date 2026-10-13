@@ -45,3 +45,15 @@ it("falls back to bounded generation after twenty skipped catalog pages", async 
   expect(fetcher).toHaveBeenCalledTimes(21);
   expect(fetcher.mock.calls[20][1]?.method).toBe("POST");
 });
+it.each([
+  ["next", "2999-01-01T00:00:00Z", "2998-12-31T00:00:00Z", "2999-02-01T00:00:00Z"],
+  ["previous", "1600-12-01T00:00:00Z", "1601-01-01T00:00:00Z", "1600-11-01T00:00:00Z"],
+] as const)("ignores generated results on the wrong side of %s's anchor", async (direction, anchor, wrong, right) => {
+  const event = (time: string) => ({ id: time, type: "opposition", bodyA: "earth", bodyB: "mars",
+    timeUtc: time, computedTimeUtc: time, validationStatus: "pending", angleDeg: 180 });
+  const fetcher = vi.fn().mockResolvedValueOnce(new Response("[]"))
+    .mockResolvedValueOnce(new Response(JSON.stringify([event(wrong), event(anchor), event(right)])));
+  vi.stubGlobal("fetch", fetcher);
+  const find = direction === "next" ? findNextEvent : findPreviousEvent;
+  expect((await find("opposition", "earth", "mars", new Date(anchor)))?.time.toISOString()).toBe(new Date(right).toISOString());
+});

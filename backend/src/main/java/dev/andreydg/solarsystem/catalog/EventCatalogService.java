@@ -93,6 +93,7 @@ public class EventCatalogService {
 
         List<CatalogEvent> validEvents = events.stream()
             .filter(this::isStoredEventValid)
+            .filter(event -> !event.displayTimeUtc().isBefore(from) && !event.displayTimeUtc().isAfter(to))
             .toList();
 
         GenerationBudget.check();
@@ -105,7 +106,9 @@ public class EventCatalogService {
         if (validEvents.isEmpty()) emptyWindows.remember(window);
 
         return stored.stream()
+            .filter(this::isStoredEventValid)
             .filter(event -> event.validationStatus() != ValidationStatus.FAILED)
+            .filter(event -> !event.displayTimeUtc().isBefore(from) && !event.displayTimeUtc().isAfter(to))
             .toList();
     }
 
@@ -215,17 +218,14 @@ public class EventCatalogService {
             current = next;
         }
 
-        if (candidates.isEmpty()) {
-            candidates.add(refineDistanceExtremum(bodyA, bodyB, from, to, Duration.ofHours(6), findMinimum));
-        }
 
         Instant generatedAt = Instant.now();
         return candidates.stream()
             .map(candidate -> refineDistanceExtremum(
                 bodyA,
                 bodyB,
-                candidate.time().minus(coarseStep.multipliedBy(2)),
-                candidate.time().plus(coarseStep.multipliedBy(2)),
+                later(from, candidate.time().minus(coarseStep.multipliedBy(2))),
+                earlier(to, candidate.time().plus(coarseStep.multipliedBy(2))),
                 Duration.ofHours(1),
                 findMinimum
             ))
@@ -501,9 +501,6 @@ public class EventCatalogService {
             }
         }
 
-        if (candidates.isEmpty()) {
-            candidates.add(refineHeliocentricMinimum(target, from, to, Duration.ofHours(6)));
-        }
 
         candidates = dedupePerihelionCandidates(candidates);
 
@@ -511,8 +508,8 @@ public class EventCatalogService {
         return candidates.stream()
             .map(candidate -> refineHeliocentricMinimum(
                 target,
-                candidate.time().minus(PERIHELION_COARSE_STEP.multipliedBy(2)),
-                candidate.time().plus(PERIHELION_COARSE_STEP.multipliedBy(2)),
+                later(from, candidate.time().minus(PERIHELION_COARSE_STEP.multipliedBy(2))),
+                earlier(to, candidate.time().plus(PERIHELION_COARSE_STEP.multipliedBy(2))),
                 Duration.ofHours(6)
             ))
             .distinct()
@@ -582,13 +579,16 @@ public class EventCatalogService {
         DistanceSample best = sampleWindow(bodyA, bodyB, start, end, Duration.ofDays(1), findMinimum);
 
         for (Duration step : List.of(Duration.ofHours(6), Duration.ofHours(1), finalStep)) {
-            start = best.time().minus(step.multipliedBy(12));
-            end = best.time().plus(step.multipliedBy(12));
+            start = later(windowStart, best.time().minus(step.multipliedBy(12)));
+            end = earlier(windowEnd, best.time().plus(step.multipliedBy(12)));
             best = sampleWindow(bodyA, bodyB, start, end, step, findMinimum);
         }
 
         return best;
     }
+
+    private static Instant later(Instant a, Instant b) { return a.isAfter(b) ? a : b; }
+    private static Instant earlier(Instant a, Instant b) { return a.isBefore(b) ? a : b; }
 
     private DistanceSample sampleWindow(
         BodyId bodyA,

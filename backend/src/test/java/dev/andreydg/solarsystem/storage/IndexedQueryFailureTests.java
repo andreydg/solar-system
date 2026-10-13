@@ -19,6 +19,7 @@ class IndexedQueryFailureTests {
         when(collection.document("events")).thenReturn(metadata);
         when(metadata.get()).thenReturn(com.google.api.core.ApiFutures.immediateFuture(snapshot));
         when(snapshot.getBoolean("indexedQueriesReady")).thenReturn(true);
+        when(snapshot.getLong("readSchemaVersion")).thenReturn(2L);
         when(collection.get()).thenReturn(com.google.api.core.ApiFutures.immediateFailedFuture(
             new com.google.api.gax.rpc.FailedPreconditionException("Index building", null,
                 com.google.api.gax.grpc.GrpcStatusCode.of(io.grpc.Status.Code.FAILED_PRECONDITION), false)));
@@ -26,7 +27,7 @@ class IndexedQueryFailureTests {
         var query = new CatalogQuery(null, null, null, Instant.parse("2027-01-01T00:00:00Z"),
             Instant.parse("2028-01-01T00:00:00Z"), false, false, 1, null);
         assertThatThrownBy(() -> repository.search(query))
-            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class).hasMessageContaining("503");
+            .isInstanceOf(org.springframework.web.server.ResponseStatusException.class).hasMessageContaining("503").hasMessageContaining("indexes");
         assertThat(output.getAll()).contains("Catalog index query is not ready", "Index building");
     }
 }

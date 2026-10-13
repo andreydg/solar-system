@@ -32,7 +32,9 @@ final class EventGeometry {
                 : value >= before && value >= after && (value > before || value > after);
             if (bracket) candidates.add(samples.get(i));
         }
-        return nearest(candidates, anchor);
+        var byValue = Comparator.comparingDouble(Sample::value);
+        return candidates.stream().min(minimum ? byValue : byValue.reversed())
+            .orElseThrow(() -> new JplHorizonsException("JPL samples do not bracket an interior extremum"));
     }
     private static Sample crossing(List<Sample> samples, Instant anchor, double target, int direction, boolean angular, double tolerance) {
         var candidates = new ArrayList<Sample>();

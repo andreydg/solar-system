@@ -287,6 +287,7 @@ missing from the indexed query.
 Public catalog reads never schedule validation retries. Use the authenticated
 POST validation endpoint to request retries; reads must remain free of hidden
 JPL work. The durable-worker PR makes this an explicit queued operation.
+<<<<<<< HEAD
 
 ## Credits
 
@@ -294,3 +295,21 @@ Planet, Sun, and moon surface textures (`public/textures/`) are the solar-system
 maps by **James Hastings-Trew — [Planet Pixel Emporium](https://planetpixelemporium.com/planets.html)**,
 used with credit per the author's usage terms. See
 [`public/textures/CREDITS.md`](public/textures/CREDITS.md).
+=======
+### Scientific coverage and acceptance fixtures
+
+Validation uses Mars–Neptune system barycentres (Horizons IDs 4–8), with Earth's
+centre (399) as observer. These planetary targets cover the full 1600–2999 UI
+range. Small-body integrations can still have shorter coverage. Missing Horizons
+data is shown as **provisional / JPL data unavailable**, with a bounded public coverage summary (raw errors remain on the private job),
+not hidden as a rejected event. A genuine geometry rejection remains excluded
+from event search. See [JPL's target and coverage documentation](https://ssd.jpl.nasa.gov/horizons/manual.html#selecting-major-bodies).
+
+Slow-pair distance windows scale with the synodic period (7–180 days); refinement
+requires a real interior extremum, and generation never substitutes an unbracketed
+window edge. Recorded JPL accept/reject fixtures cover all eleven event types and
+the 2056 Saturn–Uranus / 2084 Uranus–Neptune farthest-approach regressions.
+Requests and retrieval provenance are in `backend/src/test/resources/jpl/cases/provenance.json`.
+The capture script prints raw numeric samples; normal tests use only the checked-in
+recordings and real application geometry/photometry, not network calls.
+>>>>>>> 9011253 (fix: retain uncovered events and validate long-period extrema with JPL fixtures)

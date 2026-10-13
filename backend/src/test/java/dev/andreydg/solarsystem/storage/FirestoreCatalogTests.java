@@ -249,6 +249,16 @@ class FirestoreCatalogTests {
         assertThat(firestore.collection(collection + "-validation").document("private").get().get().getString("lastError")).isEqualTo(raw);
     }
 
+    @Test void unavailableCoverageIsReturnedByIndexedSearchButNotTheValidatedList() throws Exception {
+        var event = event("no-coverage", TIME, BodyId.MARS).pending().unavailable("No ephemeris after 2500");
+        repository.upsert(event);
+        new FirestoreIndexMigration(firestore, collection).run(true);
+        var query = new CatalogQuery(EventType.OPPOSITION, BodyId.EARTH, BodyId.MARS,
+            TIME.minusSeconds(10), TIME.plusSeconds(10), false, false, 10, null);
+        assertThat(repository.search(query).events()).containsExactly(event);
+        assertThat(repository.search(query(false, 10, null)).events()).isEmpty();
+    }
+
     private CatalogQuery query(boolean descending, int limit, String cursor) {
         return new CatalogQuery(EventType.OPPOSITION, BodyId.MARS, BodyId.EARTH, TIME.minusSeconds(1), TIME.plusSeconds(20),
             true, descending, limit, cursor);

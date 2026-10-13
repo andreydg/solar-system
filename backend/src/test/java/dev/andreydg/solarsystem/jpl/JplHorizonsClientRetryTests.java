@@ -35,6 +35,20 @@ class JplHorizonsClientRetryTests {
         return new Fixture(new JplHorizonsClient(properties, builder), server);
     }
 
+    @Test void coverageFailureIsNotScientificRejectionAndUsesLongRangePlanetaryTargets() {
+        for (var body : List.of(BodyId.MARS, BodyId.JUPITER, BodyId.SATURN, BodyId.URANUS, BodyId.NEPTUNE)) {
+            Fixture fixture = fixture(3);
+            fixture.server().expect(ExpectedCount.once(), requestTo(Matchers.containsString("COMMAND=%27" + body.horizonsCommand() + "%27")))
+                .andRespond(withSuccess("No ephemeris for target after 2500-DEC-31", MediaType.TEXT_PLAIN));
+            assertThatThrownBy(() -> fixture.client().vector(body, Instant.parse("2600-01-01T00:00:00Z")))
+                .isInstanceOf(JplCoverageException.class).hasMessageContaining("2500-DEC-31");
+            fixture.server().verify();
+        }
+        assertThat(List.of(BodyId.MARS, BodyId.JUPITER, BodyId.SATURN, BodyId.URANUS, BodyId.NEPTUNE)
+            .stream().map(BodyId::horizonsCommand)).containsExactly("4", "5", "6", "7", "8");
+        assertThat(BodyId.EARTH.horizonsCommand()).isEqualTo("399");
+    }
+
     @Test
     void retriesTransient5xxThenSucceeds() {
         Fixture fixture = fixture(3);

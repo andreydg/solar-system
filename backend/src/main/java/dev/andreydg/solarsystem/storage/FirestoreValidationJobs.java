@@ -73,7 +73,8 @@ public class FirestoreValidationJobs implements ValidationJobs {
             tx.set(firestore.collection(collection).document(result.id()), toDocument(result));
             if (privateError != null) tx.update(job(lease.eventId()), "lastError", privateError);
             tx.update(job(lease.eventId()), Map.of("state", result.validationStatus() == ValidationStatus.VALIDATED ? "done" : "failed",
-                "availableAt", FieldValue.delete(), "finishedAt", timestamp(now)));
+                "availableAt", FieldValue.delete(), "finishedAt", timestamp(now),
+                "retryExhausted", result.jplRawSummary() != null && result.jplRawSummary().startsWith("Retry budget exhausted")));
         });
     }
     @Override public boolean defer(Lease lease, Instant availableAt, Instant now) {

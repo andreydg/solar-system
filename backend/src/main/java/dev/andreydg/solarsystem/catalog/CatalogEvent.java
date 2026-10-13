@@ -49,6 +49,13 @@ public record CatalogEvent(
             computedMagnitude, computedSource, null, null, null, null, null, ValidationStatus.FAILED,
             rangeStartUtc, rangeEndUtc, generatedAtUtc, Instant.now(), null, summary, algorithmVersion);
     }
+    /** Data unavailable is not evidence that the provisional event is geometrically false. */
+    public CatalogEvent unavailable(String summary) {
+        if (validationStatus == ValidationStatus.VALIDATED) return this;
+        return new CatalogEvent(id, type, bodyA, bodyB, computedTimeUtc, computedDistanceAu, computedAngleDeg,
+            computedMagnitude, computedSource, null, null, null, null, null, ValidationStatus.UNAVAILABLE,
+            rangeStartUtc, rangeEndUtc, generatedAtUtc, Instant.now(), null, summary, algorithmVersion);
+    }
     public CatalogEvent pending() {
         return new CatalogEvent(id, type, bodyA, bodyB, computedTimeUtc, computedDistanceAu, computedAngleDeg,
             computedMagnitude, computedSource, null, null, null, null, null, ValidationStatus.PENDING,

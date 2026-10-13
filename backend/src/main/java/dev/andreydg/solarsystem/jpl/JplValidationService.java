@@ -24,8 +24,9 @@ public class JplValidationService {
     public CatalogEvent validateEvent(String eventId) {
         var event = catalog.findById(eventId).orElseThrow(() -> new JplHorizonsException("Catalog event not found"));
         if (!EventPairing.isValid(event.type(), event.bodyA(), event.bodyB())) throw new JplHorizonsException("Invalid event pair");
-        var coarse = frames(event, event.computedTimeUtc().minus(Duration.ofDays(7)),
-            event.computedTimeUtc().plus(Duration.ofDays(7)), "360m");
+        Duration window = coarseWindow(event);
+        var coarse = frames(event, event.computedTimeUtc().minus(window),
+            event.computedTimeUtc().plus(window), "360m");
         var candidate = locate(event, coarse, event.computedTimeUtc(), false);
         var fine = frames(event, candidate.time().minus(Duration.ofHours(9)), candidate.time().plus(Duration.ofHours(9)), "5m");
         var refined = locate(event, fine, candidate.time(), true);
@@ -42,7 +43,14 @@ public class JplValidationService {
         }
         String qualification = event.type() == EventType.BRIGHTEST_APPROACH ? "JPL geometry with approximate photometry" : "JPL geometric event";
         return event.validated(refined.time(), distance, angle, magnitude, delta,
-            qualification + "; bracket/direction checked; 5-minute refinement grid; not a local visibility prediction");
+            qualification + "; bracket/direction checked; 5-minute refinement grid; Mars–Neptune system barycentres; not a local visibility prediction");
+    }
+
+    static Duration coarseWindow(CatalogEvent event) {
+        if (event.type() != EventType.CLOSEST_APPROACH && event.type() != EventType.FARTHEST_APPROACH)
+            return Duration.ofDays(7);
+        double synodicDays = 1 / Math.abs(1 / event.bodyA().typicalOrbitDays() - 1 / event.bodyB().typicalOrbitDays());
+        return Duration.ofDays((long) Math.max(7, Math.min(180, Math.ceil(synodicDays * 0.005))));
     }
 
     private EventGeometry.Sample locate(CatalogEvent event, List<Frame> frames, Instant anchor, boolean refined) {

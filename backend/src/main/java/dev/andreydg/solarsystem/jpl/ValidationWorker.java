@@ -87,20 +87,33 @@ public class ValidationWorker {
             log.warn("Validation attempt {} failed for {}: {}", lease.attempt(), event.id(), failure.getClass().getSimpleName());
             boolean transientFailure = failure instanceof JplHorizonsException jpl && jpl.isTransient()
                 || failure instanceof EventCatalogStorageException;
-            if (transientFailure) return retry(lease, "Temporary validation failure");
+            if (transientFailure) return retry(lease, "Temporary validation failure", event);
             String reason = failure.toString();
             privateError = reason.substring(0, Math.min(8000, reason.length()));
             if (event.validationStatus() == ValidationStatus.VALIDATED) return abandon(lease, privateError);
-            result = event.failed("JPL did not confirm this event. An administrator can inspect the validation job.");
+            result = failure instanceof JplCoverageException ? event.unavailable(coverageSummary(failure))
+                : event.failed("JPL did not confirm this event. An administrator can inspect the validation job.");
         }
         // A failed write says nothing about geometry. Leave the event unchanged and reschedule.
         try {
             return (privateError == null ? jobs.complete(lease, result, clock.instant())
                 : jobs.complete(lease, result, clock.instant(), privateError))
-                ? (result.validationStatus() == ValidationStatus.VALIDATED ? "validated" : "failed") : "lease-lost";
+                ? result.validationStatus().storedValue() : "lease-lost";
         } catch (EventCatalogStorageException failure) {
             return retry(lease, "Temporary validation result storage failure");
         }
+    }
+    private static String coverageSummary(RuntimeException failure) {
+        var boundary = java.util.regex.Pattern.compile("(?i)\\b(before|after) ([0-9]{4}-[A-Z]{3}-[0-9]{2})\\b")
+            .matcher(java.util.Objects.toString(failure.getMessage(), ""));
+        return boundary.find() ? "JPL ephemeris unavailable " + boundary.group(1).toLowerCase(java.util.Locale.ROOT)
+            + " " + boundary.group(2) + "." : "JPL ephemeris is unavailable for this target and date.";
+    }
+    private String retry(ValidationJobs.Lease lease, String reason, CatalogEvent event) {
+        if (lease.attempt() >= MAX_ATTEMPTS && event.validationStatus() != ValidationStatus.VALIDATED) {
+            return jobs.complete(lease, event.unavailable("Retry budget exhausted: " + reason), clock.instant()) ? "failed" : "lease-lost";
+        }
+        return retry(lease, reason);
     }
     private String retry(ValidationJobs.Lease lease, String reason) {
         if (lease.attempt() >= MAX_ATTEMPTS) return abandon(lease, "Retry budget exhausted: " + reason);

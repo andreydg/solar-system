@@ -82,6 +82,7 @@ public class InMemoryEventCatalogRepository implements EventCatalogRepository, V
         if (!lease.eventId().equals(result.id())) throw new IllegalArgumentException("Lease/event mismatch");
         if (!owns(lease, now)) return false;
         events.put(result.id(), result);
+        if (result.jplRawSummary() != null && result.jplRawSummary().startsWith("Retry budget exhausted")) exhausted.add(result.id());
         jobs.remove(lease.eventId());
         activeLease = null;
         leaseUntil = Instant.MIN;

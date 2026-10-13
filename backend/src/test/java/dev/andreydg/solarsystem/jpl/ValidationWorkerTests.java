@@ -179,6 +179,19 @@ class ValidationWorkerTests {
         repository.abandon(reclaimed, "done", NOW.plusSeconds(2));
     }
 
+    @Test void noCoverageLeavesAVisibleProvisionalRecordWithTheActualReason() {
+        repository.upsertAll(List.of(event()));
+        when(validation.validateEvent("event")).thenThrow(new JplCoverageException("No ephemeris after 2500-DEC-31"));
+        assertThat(worker(NOW, true).drainOne()).isEqualTo("unavailable");
+        var query = new CatalogQuery(EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS,
+            NOW.minusSeconds(100), NOW.plusSeconds(100), false, false, 10, null);
+        var visible = catalog.search(query).events().getFirst();
+        assertThat(visible.validationStatus()).isEqualTo(ValidationStatus.UNAVAILABLE);
+        assertThat(visible.jplRawSummary()).contains("2500-DEC-31");
+        assertThat(repository.upsertAll(List.of(event()))).containsExactly(visible);
+        assertThat(worker(NOW.plusSeconds(10000), true).drainOne()).isEqualTo("idle-or-busy");
+    }
+
     private CatalogEvent event() {
         return new CatalogEvent("event", EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS,
             NOW, 0.6, null, null, "TEST", null, null, null, null, null, ValidationStatus.PENDING,

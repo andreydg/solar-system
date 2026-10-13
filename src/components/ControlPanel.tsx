@@ -46,7 +46,7 @@ type CatalogMetadata = {
   jplCheckedAtUtc: Date | null;
   jplDeltaKm: number | null;
   jplRawSummary: string | null;
-  validationStatus: "pending" | "validated" | "failed";
+  validationStatus: "pending" | "validated" | "failed" | "unavailable";
 };
 
 type EventResultView = Partial<CatalogMetadata> & {
@@ -258,6 +258,7 @@ export default function ControlPanel({
             {eventResult.source ? <small>Source: {formatSource(eventResult.source)}</small> : null}
             <small>{eventResult.validationStatus === "validated"
               ? "JPL geometry checked · 5-minute refinement grid"
+              : eventResult.validationStatus === "unavailable" ? "Provisional · JPL data unavailable"
               : eventResult.validationStatus === "failed" ? "Validation failed · not a confirmed event"
               : eventResult.validationStatus === "pending" ? "Provisional · validation queued"
               : "Browser approximation · not JPL-validated"}</small>

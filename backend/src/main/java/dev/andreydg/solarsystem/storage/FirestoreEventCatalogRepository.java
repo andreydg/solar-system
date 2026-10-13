@@ -108,7 +108,7 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
             Query query = firestore.collection(collection).whereEqualTo("algorithmVersion", CatalogEvent.CURRENT_ALGORITHM_VERSION);
             if (criteria.type() != null) query = query.whereEqualTo("type", criteria.type().apiValue());
             if (criteria.validatedOnly()) query = query.whereEqualTo("validationStatus", ValidationStatus.VALIDATED.storedValue());
-            else query = query.whereIn("validationStatus", List.of("pending", "validated"));
+            else query = query.whereIn("validationStatus", List.of("pending", "validated", "unavailable"));
             if (criteria.bodyA() != null && criteria.bodyB() != null) {
                 query = query.whereEqualTo("pairKey", CatalogQuery.pairKey(criteria.bodyA(), criteria.bodyB()));
             } else if (criteria.bodyA() != null || criteria.bodyB() != null) {
