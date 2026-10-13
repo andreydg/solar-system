@@ -183,6 +183,18 @@ class ApiGuardFilterTests {
         });
         assertThat(response.getStatus()).isEqualTo(200);
     }
+
+    @Test void authenticatedDrainDoesNotConsumeVisitorWorkCapacityOrQuotas() throws Exception {
+        var filter = new ApiGuardFilter(TOKEN, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+        for (int i = 0; i < 130; i++) {
+            var request = new MockHttpServletRequest("POST", "/api/admin/validation/drain");
+            request.addHeader("Authorization", "Bearer " + TOKEN);
+            var response = new MockHttpServletResponse();
+            filter.doFilter(request, response, (req, res) -> {});
+            assertThat(response.getStatus()).isEqualTo(200);
+        }
+    }
+
     private static String iMethod(String path) { return path.endsWith("generate") ? "POST" : "GET"; }
 
     @Test void concurrentWorkIsRejectedRatherThanQueuedAndPermitsAreReleased() throws Exception {

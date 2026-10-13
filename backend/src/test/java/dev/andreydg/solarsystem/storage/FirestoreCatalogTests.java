@@ -155,6 +155,50 @@ class FirestoreCatalogTests {
         assertThat(ref.collection("_corrupt").get().get().size()).isEqualTo(1);
     }
 
+    @Test void requeuePreservesAcceptedDataAndPoisonedRecordsReleaseTheLease() throws Exception {
+        var accepted = event("accepted", TIME, BodyId.MARS);
+        repository.upsert(accepted);
+        var jobs = new FirestoreValidationJobs(firestore, new FirestoreProperties(collection, "(default)", System.getenv("FIRESTORE_EMULATOR_HOST")));
+        var now = Instant.now();
+        jobs.enqueue("accepted", now);
+        assertThat(repository.findById("accepted")).contains(accepted);
+        var lease = jobs.claim(now, java.time.Duration.ofMinutes(10)).orElseThrow();
+        jobs.abandon(lease, "new validation failed", now);
+        assertThat(repository.findById("accepted")).contains(accepted);
+
+        var bad = new HashMap<>(FirestoreEventCatalogRepository.toDocument(event("poison", TIME, BodyId.MARS).pending()));
+        bad.put("computedTimeUtc", "invalid-date");
+        firestore.collection(collection).document("poison").set(bad).get();
+        var initial = new HashMap<>(FirestoreValidationJobs.initial(now));
+        initial.put("attempts", 6);
+        firestore.collection(collection + "-validation").document("poison").set(initial).get();
+        var catalog = new EventCatalogService(org.mockito.Mockito.mock(dev.andreydg.solarsystem.ephemeris.CompositeEphemerisProvider.class), repository);
+        var validation = org.mockito.Mockito.mock(dev.andreydg.solarsystem.jpl.JplValidationService.class);
+        var worker = new dev.andreydg.solarsystem.jpl.ValidationWorker(jobs, catalog, validation,
+            new dev.andreydg.solarsystem.config.JplProperties("unused", true, 2, 3, 1));
+        assertThat(worker.drainOne()).isEqualTo("failed");
+        assertThat(worker.drainOne()).isEqualTo("idle-or-busy");
+        assertThat(firestore.collection(collection + "-validation").document("poison").get().get().getString("state")).isEqualTo("failed");
+        org.mockito.Mockito.verifyNoInteractions(validation);
+    }
+
+    @Test void exhaustedRecoveryIsBoundedAndDoesNotRequeueScientificRejections() throws Exception {
+        var jobs = new FirestoreValidationJobs(firestore, new FirestoreProperties(collection, "(default)", System.getenv("FIRESTORE_EMULATOR_HOST")));
+        var now = Instant.now().plusSeconds(1);
+        for (String id : List.of("exhausted-a", "exhausted-b", "rejected")) {
+            repository.upsertAll(List.of(event(id, TIME, BodyId.MARS).pending()));
+            var lease = jobs.claim(now, java.time.Duration.ofMinutes(1)).orElseThrow();
+            jobs.abandon(lease, id.startsWith("exhausted") ? "Retry budget exhausted" : "bad geometry", now);
+        }
+        var first = jobs.requeueExhausted(null, 1, now);
+        assertThat(first.queued()).isEqualTo(1);
+        assertThat(first.nextCursor()).isEqualTo("exhausted-a");
+        var last = jobs.requeueExhausted(first.nextCursor(), 1, now);
+        assertThat(last.queued()).isEqualTo(1);
+        assertThat(last.nextCursor()).isNull();
+        assertThat(firestore.collection(collection + "-validation").document("rejected").get().get().getString("state")).isEqualTo("failed");
+    }
+
     private CatalogQuery query(boolean descending, int limit, String cursor) {
         return new CatalogQuery(EventType.OPPOSITION, BodyId.MARS, BodyId.EARTH, TIME.minusSeconds(1), TIME.plusSeconds(20),
             true, descending, limit, cursor);

@@ -62,7 +62,7 @@ public class FirestoreValidationJobs implements ValidationJobs {
             "state", "ready", "lastError", reason)));
     }
     @Override public boolean abandon(Lease lease, String reason, Instant now) {
-        return finish(lease, now, tx -> tx.update(job(lease.eventId()), Map.of("state", "failed", "lastError", reason,
+        return finish(lease, now, tx -> tx.update(job(lease.eventId()), Map.of("state", "failed", "lastError", reason, "retryExhausted", reason.startsWith("Retry budget exhausted"),
             "availableAt", FieldValue.delete(), "finishedAt", timestamp(now))));
     }
     private boolean finish(Lease lease, Instant now, java.util.function.Consumer<Transaction> write) {
@@ -82,6 +82,23 @@ public class FirestoreValidationJobs implements ValidationJobs {
         } catch (ExecutionException e) { throw new EventCatalogStorageException("Failed finishing validation", e); }
     }
 
+    @Override public RecoveryPage requeueExhausted(String after, int limit, Instant now) {
+        if (limit < 1 || limit > 100) throw new IllegalArgumentException("Recovery limit must be 1–100");
+        if (after != null && (!after.matches("[A-Za-z0-9_:-]{1,180}") || after.matches("__.*__")))
+            throw new IllegalArgumentException("Invalid recovery cursor");
+        try {
+            Query query = firestore.collection(collection + "-validation").whereEqualTo("retryExhausted", true)
+                .orderBy(FieldPath.documentId()).limit(limit + 1);
+            if (after != null) query = query.startAfter(job(after));
+            var documents = query.get().get().getDocuments();
+            var page = documents.subList(0, Math.min(limit, documents.size()));
+            for (var document : page) enqueue(document.getId(), now);
+            return new RecoveryPage(page.size(), documents.size() > limit ? page.getLast().getId() : null);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt(); throw new EventCatalogStorageException("Interrupted recovering jobs", e);
+        } catch (ExecutionException e) { throw new EventCatalogStorageException("Failed recovering jobs", e); }
+    }
+
     @Override public void enqueue(String id, Instant now) {
         try {
             firestore.runTransaction(tx -> {
@@ -93,7 +110,6 @@ public class FirestoreValidationJobs implements ValidationJobs {
                     && instant(prior.getTimestamp("availableAt")).isAfter(now)) {
                     throw new IllegalArgumentException("Validation is already running");
                 }
-                tx.set(eventRef, toDocument(fromDocument(docs.get(0).getData()).pending()));
                 tx.set(job(id), initial(now));
                 return null;
             }).get();

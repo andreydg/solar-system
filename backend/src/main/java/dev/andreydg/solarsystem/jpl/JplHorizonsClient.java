@@ -71,6 +71,7 @@ public class JplHorizonsClient {
     }
 
     public List<JplVector> vectors(BodyId body, Instant startUtc, Instant stopUtc, String stepSize) {
+        ValidationBudget.check();
         String command = COMMAND_BY_BODY.get(body);
         if (command == null) {
             throw new JplHorizonsException("No JPL Horizons command configured for " + body.apiValue());
@@ -104,6 +105,7 @@ public class JplHorizonsClient {
         JplHorizonsException lastTransient = null;
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            ValidationBudget.check();
             try {
                 return fetchOnce(body, contextTime, uri);
             } catch (JplHorizonsException exception) {

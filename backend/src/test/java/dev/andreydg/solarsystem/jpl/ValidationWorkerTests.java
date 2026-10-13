@@ -26,22 +26,22 @@ class ValidationWorkerTests {
             .thenReturn(event.validated(NOW, 0.5, null, null, 0.0, "fixture"));
         assertThat(worker(NOW, true).drainOne()).isEqualTo("retry-scheduled");
         assertThat(repository.findById(event.id()).orElseThrow().validationStatus()).isEqualTo(ValidationStatus.PENDING);
-        assertThat(worker(NOW.plusSeconds(59), true).drainOne()).isEqualTo("idle-or-busy");
-        assertThat(worker(NOW.plusSeconds(60), true).drainOne()).isEqualTo("validated");
+        assertThat(worker(NOW.plusSeconds(299), true).drainOne()).isEqualTo("idle-or-busy");
+        assertThat(worker(NOW.plusSeconds(300), true).drainOne()).isEqualTo("validated");
         assertThat(repository.findById(event.id()).orElseThrow().validationStatus()).isEqualTo(ValidationStatus.VALIDATED);
     }
     @Test void permanentFailureAndExhaustedRetriesAreTerminalUntilExplicitlyRequeued() {
         repository.upsertAll(List.of(event()));
         when(validation.validateEvent("event")).thenThrow(new JplHorizonsException("bad geometry"));
         assertThat(worker(NOW, true).drainOne()).isEqualTo("failed");
-        catalog.query(EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS, NOW.minusSeconds(10), NOW.plusSeconds(10));
+        catalog.search(new CatalogQuery(EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS, NOW.minusSeconds(10), NOW.plusSeconds(10), false, false, 10, null));
         assertThat(worker(NOW.plusSeconds(1000), true).drainOne()).isEqualTo("idle-or-busy");
         repository.enqueue("event", NOW);
         doThrow(new JplHorizonsException("outage", true)).when(validation).validateEvent("event");
         Instant time = NOW;
-        for (int i = 1; i <= 5; i++) {
-            assertThat(worker(time, true).drainOne()).isEqualTo(i == 5 ? "failed" : "retry-scheduled");
-            time = time.plusSeconds(60L << (i - 1));
+        for (int i = 1; i <= ValidationWorker.MAX_ATTEMPTS; i++) {
+            assertThat(worker(time, true).drainOne()).isEqualTo(i == ValidationWorker.MAX_ATTEMPTS ? "failed" : "retry-scheduled");
+            time = time.plus(ValidationWorker.retryDelay(i));
         }
         assertThat(worker(time.plusSeconds(10000), true).drainOne()).isEqualTo("idle-or-busy");
     }
@@ -79,6 +79,75 @@ class ValidationWorkerTests {
         assertThat(worker.drainOne()).isEqualTo("idle-or-busy");
         verifyNoInteractions(validation);
     }
+    @Test void explicitRevalidationPreservesAcceptedValuesEvenWhenItFails() {
+        var accepted = event().validated(NOW, 0.5, null, null, 0.1, "last accepted");
+        repository.upsert(accepted);
+        repository.enqueue(accepted.id(), NOW);
+        assertThat(repository.findById(accepted.id())).contains(accepted);
+        when(validation.validateEvent(accepted.id())).thenThrow(new JplHorizonsException("new check rejected"));
+        assertThat(worker(NOW, true).drainOne()).isEqualTo("failed");
+        verify(validation).validateEvent(accepted.id());
+        assertThat(repository.findById(accepted.id())).contains(accepted);
+        assertThat(worker(NOW, true).drainOne()).isEqualTo("idle-or-busy");
+    }
+
+    @Test void batchContinuesPastAnUnreadableEventAndChecksAttemptBudgetBeforeReading() {
+        var jobs = mock(ValidationJobs.class);
+        var service = mock(EventCatalogService.class);
+        var poison = new ValidationJobs.Lease("poison", "a", 7);
+        var exhausted = new ValidationJobs.Lease("exhausted", "b", ValidationWorker.MAX_ATTEMPTS + 1);
+        var good = new ValidationJobs.Lease("event", "c", 1);
+        when(jobs.claim(any(), any())).thenReturn(java.util.Optional.of(poison), java.util.Optional.of(exhausted),
+            java.util.Optional.of(good), java.util.Optional.empty());
+        when(jobs.abandon(any(), anyString(), any())).thenReturn(true);
+        when(service.findById("poison")).thenThrow(new java.time.format.DateTimeParseException("invalid", "bad", 0));
+        when(service.findById("event")).thenReturn(java.util.Optional.of(event()));
+        when(validation.validateEvent("event")).thenReturn(event().validated(NOW, 0.5, null, null, 0.0, "ok"));
+        when(jobs.complete(any(), any(), any())).thenReturn(true);
+        var worker = new ValidationWorker(jobs, service, validation, new JplProperties("unused", true, 2, 3, 1), Clock.fixed(NOW, ZoneOffset.UTC));
+        assertThat(worker.drainBatch()).isEqualTo(new ValidationWorker.DrainResult("idle-or-busy", 3));
+        verify(service, never()).findById("exhausted");
+        verify(validation).validateEvent("event");
+    }
+
+    @Test void failedCommitNeverTurnsAnAcceptedCalculationIntoScientificRejection() {
+        var jobs = mock(ValidationJobs.class);
+        repository.upsert(event());
+        var lease = new ValidationJobs.Lease("event", "fence", 1);
+        when(jobs.claim(any(), any())).thenReturn(java.util.Optional.of(lease));
+        var accepted = event().validated(NOW, 0.5, null, null, 0.0, "accepted");
+        when(validation.validateEvent("event")).thenReturn(accepted);
+        when(jobs.complete(any(), any(), any())).thenThrow(new dev.andreydg.solarsystem.storage.EventCatalogStorageException("offline", new RuntimeException()));
+        when(jobs.retry(any(), any(), anyString(), any())).thenReturn(true);
+        var worker = new ValidationWorker(jobs, catalog, validation, new JplProperties("unused", true, 2, 3, 1), Clock.fixed(NOW, ZoneOffset.UTC));
+        assertThat(worker.drainOne()).isEqualTo("retry-scheduled");
+        verify(jobs).complete(lease, accepted, NOW);
+        verify(jobs, never()).abandon(any(), anyString(), any());
+        assertThat(repository.findById("event").orElseThrow().validationStatus()).isEqualTo(ValidationStatus.PENDING);
+    }
+
+    @Test void deterministicProgrammingFailuresAreNotRetriedAsJplOutages() {
+        repository.upsertAll(List.of(event()));
+        when(validation.validateEvent("event")).thenThrow(new IllegalArgumentException("invalid geometry input"));
+        assertThat(worker(NOW, true).drainOne()).isEqualTo("failed");
+        assertThat(worker(NOW.plusSeconds(10000), true).drainOne()).isEqualTo("idle-or-busy");
+    }
+
+    @Test void exhaustedJobsCanBeExplicitlyRecoveredAndBackoffSpansALongOutage() {
+        repository.upsertAll(List.of(event()));
+        var lease = repository.claim(NOW, Duration.ofMinutes(10)).orElseThrow();
+        repository.abandon(lease, "Retry budget exhausted", NOW);
+        assertThat(repository.requeueExhausted(null, 1, NOW).queued()).isEqualTo(1);
+        assertThat(repository.claim(NOW, Duration.ofMinutes(10))).isPresent();
+        long seconds = java.util.stream.IntStream.range(1, ValidationWorker.MAX_ATTEMPTS)
+            .mapToLong(attempt -> ValidationWorker.retryDelay(attempt).toSeconds()).sum();
+        assertThat(seconds).isGreaterThan(Duration.ofHours(24).toSeconds());
+        try (var ignored = ValidationBudget.start(Duration.ZERO)) {
+            assertThatThrownBy(ValidationBudget::check).isInstanceOf(JplHorizonsException.class);
+        }
+        assertThatCode(ValidationBudget::check).doesNotThrowAnyException();
+    }
+
     private CatalogEvent event() {
         return new CatalogEvent("event", EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS,
             NOW, 0.6, null, null, "TEST", null, null, null, null, null, ValidationStatus.PENDING,

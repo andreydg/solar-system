@@ -25,6 +25,7 @@ import org.springframework.stereotype.Repository;
 public class InMemoryEventCatalogRepository implements EventCatalogRepository, ValidationJobs {
     private final ConcurrentMap<String, CatalogEvent> events = new ConcurrentHashMap<>();
     private final Map<String, Job> jobs = new HashMap<>();
+    private final java.util.Set<String> exhausted = new java.util.HashSet<>();
     private Lease activeLease;
     private Instant leaseUntil = Instant.MIN;
 
@@ -97,11 +98,22 @@ public class InMemoryEventCatalogRepository implements EventCatalogRepository, V
         if (activeLease != null && activeLease.eventId().equals(id) && leaseUntil.isAfter(now)) {
             throw new IllegalArgumentException("Validation is already running");
         }
-        events.put(id, event.pending());
+        exhausted.remove(id);
         jobs.put(id, new Job(0, now, null));
     }
+    @Override public synchronized RecoveryPage requeueExhausted(String after, int limit, Instant now) {
+        if (limit < 1 || limit > 100) throw new IllegalArgumentException("Recovery limit must be 1–100");
+        if (after != null && (!after.matches("[A-Za-z0-9_:-]{1,180}") || after.matches("__.*__")))
+            throw new IllegalArgumentException("Invalid recovery cursor");
+        var page = exhausted.stream().filter(id -> after == null || id.compareTo(after) > 0).sorted().limit(limit + 1L).toList();
+        var selected = page.stream().limit(limit).toList();
+        selected.forEach(id -> enqueue(id, now));
+        return new RecoveryPage(selected.size(), page.size() > limit ? selected.getLast() : null);
+    }
+
     @Override public synchronized boolean abandon(Lease lease, String reason, Instant now) {
         if (!owns(lease, now)) return false;
+        if (reason.startsWith("Retry budget exhausted")) exhausted.add(lease.eventId());
         jobs.remove(lease.eventId());
         activeLease = null;
         leaseUntil = Instant.MIN;

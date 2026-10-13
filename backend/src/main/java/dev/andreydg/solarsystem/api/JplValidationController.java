@@ -38,7 +38,13 @@ public class JplValidationController {
     }
 
     @PostMapping("/api/admin/validation/drain")
-    public java.util.Map<String, String> drain() {
-        return java.util.Map.of("status", worker.drainOne());
+    public dev.andreydg.solarsystem.jpl.ValidationWorker.DrainResult drain() {
+        return worker.drainBatch();
+    }
+
+    @PostMapping("/api/admin/validation/requeue-exhausted")
+    public dev.andreydg.solarsystem.catalog.ValidationJobs.RecoveryPage requeueExhausted(
+        @RequestParam(required = false) String after, @RequestParam(defaultValue = "100") int limit) {
+        return jobs.requeueExhausted(after, limit, Instant.now());
     }
 }

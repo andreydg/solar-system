@@ -11,5 +11,7 @@ public interface ValidationJobs {
     boolean retry(Lease lease, Instant availableAt, String reason, Instant now);
     boolean abandon(Lease lease, String reason, Instant now);
     void enqueue(String eventId, Instant now);
+    RecoveryPage requeueExhausted(String after, int limit, Instant now);
+    record RecoveryPage(int queued, String nextCursor) {}
     record Lease(String eventId, String token, int attempt) {}
 }
