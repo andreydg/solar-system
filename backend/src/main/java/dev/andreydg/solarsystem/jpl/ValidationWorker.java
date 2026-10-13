@@ -46,6 +46,23 @@ public class ValidationWorker {
         var claimed = jobs.claim(clock.instant(), LEASE);
         if (claimed.isEmpty()) return "idle-or-busy";
         var lease = claimed.get();
+        try {
+            return process(lease);
+        } catch (EventCatalogStorageException unavailable) {
+            // Cleanup also requires storage. A database outage falls back to the expiring lease.
+            throw unavailable;
+        } catch (RuntimeException unexpected) {
+            log.error("Unexpected worker failure for {}", lease.eventId(), unexpected);
+            try {
+                // Job-only cleanup releases the global lease without changing accepted event data.
+                return abandon(lease, "Unexpected worker failure: " + unexpected.getClass().getSimpleName());
+            } catch (RuntimeException cleanupFailure) {
+                unexpected.addSuppressed(cleanupFailure);
+                throw unexpected;
+            }
+        }
+    }
+    private String process(ValidationJobs.Lease lease) {
         // Check before deserializing a possibly poisoned document.
         if (lease.attempt() > MAX_ATTEMPTS) return abandon(lease, "Retry budget exhausted");
         CatalogEvent event;

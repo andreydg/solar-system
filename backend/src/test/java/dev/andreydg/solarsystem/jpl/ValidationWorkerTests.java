@@ -148,6 +148,20 @@ class ValidationWorkerTests {
         assertThatCode(ValidationBudget::check).doesNotThrowAnyException();
     }
 
+    @Test void unexpectedCompletionFailureReleasesTheLeaseWithoutChangingTheEvent() {
+        repository.upsertAll(List.of(event()));
+        var jobs = spy(repository);
+        when(validation.validateEvent("event")).thenReturn(event().validated(NOW, 0.5, null, null, 0.0, "accepted"));
+        doThrow(new IllegalStateException("unexpected commit failure")).when(jobs).complete(any(), any(), any());
+        var worker = new ValidationWorker(jobs, catalog, validation,
+            new JplProperties("unused", true, 2, 3, 1), Clock.fixed(NOW, ZoneOffset.UTC));
+        assertThat(worker.drainOne()).isEqualTo("failed");
+        verify(jobs).abandon(any(), contains("Unexpected worker failure"), eq(NOW));
+        assertThat(repository.findById("event")).contains(event());
+        repository.enqueue("event", NOW);
+        assertThat(repository.claim(NOW, Duration.ofMinutes(10))).isPresent();
+    }
+
     private CatalogEvent event() {
         return new CatalogEvent("event", EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS,
             NOW, 0.6, null, null, "TEST", null, null, null, null, null, ValidationStatus.PENDING,
