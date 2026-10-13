@@ -30,3 +30,8 @@ it("plots a finite continuous Mars sky track that reverses around opposition", (
   expect(skyTrack("halley", view.time)).toEqual([]);
   expect(skyTrack("earth", view.time)).toEqual([]);
 });
+it("normalizes an explicitly empty focus to null", () => {
+  const url = new URL(shareUrl(view, "https://solar.andreyg.com"));
+  url.searchParams.set("focus", "");
+  expect(readSharedView(url.search)?.focus).toBeNull();
+});

@@ -24,7 +24,7 @@ export function readSharedView(search: string): SharedView | null {
       !isValidEventPair(eventType, bodyA, bodyB)) return null;
   const visible = params.has("bodies") ? (params.get("bodies") || "").split(",").filter(Boolean) : defaultBodies;
   if (visible.some(body => !bodyIds.has(body))) return null;
-  const focus = params.get("focus") as BodyId | null;
+  const focus = (params.get("focus") || null) as BodyId | null;
   if (focus && (!bodyIds.has(focus) || !visible.includes(focus))) return null;
   return { time, eventType, bodyA, bodyB, focus, visibleBodies: [...new Set(visible)] as BodyId[] };
 }

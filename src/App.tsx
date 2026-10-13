@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { defaultBodies, readSharedView, shareUrl } from "./lib/sharedView";
+import { defaultBodies, readSharedView, shareUrl, type SharedView } from "./lib/sharedView";
 import SceneBoundary from "./components/SceneBoundary";
 import { canUseBrowserFallback } from "./lib/http";
 import ControlPanel from "./components/ControlPanel";
@@ -19,6 +19,20 @@ import { interpolateTrajectory } from "./lib/smallBodyTrajectory";
 import { findNextEvent, findPreviousEvent, SEARCH_HORIZON_YEARS, type CatalogEventResult } from "./lib/eventCatalogApi";
 import { addDays, addYears } from "./lib/timeUtils";
 
+type DisplayEvent = (ClosestApproachResult & { angleDeg: null; magnitude: null; type: "closestApproach" }) | CatalogEventResult;
+type ViewEntry = {
+  solarView: 1; key: string; kind: "shared" | "unshared"; search: string;
+  playing: boolean; speed: number; eventResult: DisplayEvent | null; eventStatus: string | null;
+};
+function readViewEntry(value: unknown): { entry: ViewEntry; view: SharedView } | null {
+  if (!value || typeof value !== "object") return null;
+  const entry = value as ViewEntry;
+  if (entry.solarView !== 1 || typeof entry.key !== "string" || !["shared", "unshared"].includes(entry.kind)
+      || typeof entry.search !== "string" || typeof entry.playing !== "boolean"
+      || !Number.isFinite(entry.speed) || entry.speed <= 0) return null;
+  const view = readSharedView(entry.search);
+  return view ? { entry, view } : null;
+}
 
 export default function App() {
   const [initialView] = useState(() => readSharedView(window.location.search));
@@ -29,9 +43,7 @@ export default function App() {
   const [eventType, setEventType] = useState<CatalogEventType>(initialView?.eventType ?? "closestApproach");
   const [eventBodyA, setEventBodyA] = useState<BodyId>(initialView?.bodyA ?? "earth");
   const [eventBodyB, setEventBodyB] = useState<BodyId>(initialView?.bodyB ?? "mars");
-  const [eventResult, setEventResult] = useState<
-    (ClosestApproachResult & { angleDeg: null; magnitude: null; type: "closestApproach" }) | CatalogEventResult | null
-  >(null);
+  const [eventResult, setEventResult] = useState<DisplayEvent | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [eventStatus, setEventStatus] = useState<string | null>(null);
   const { trajectories: smallBodyTrajectories, error: trajectoryError } = useSmallBodyTrajectories(visibleBodies);
@@ -46,18 +58,58 @@ export default function App() {
   const { currentTime, setCurrentTime, timeRef, pauseClock } = useSimulationClock(initialTime, isPlaying, speedDaysPerSecond);
   const pausePlayback = () => { pauseClock(); setIsPlaying(false); };
   const [sharedLink, setSharedLink] = useState<string | null>(null);
+  const viewUrl = useMemo(() => shareUrl({
+    time: currentTime, visibleBodies, eventType, bodyA: eventBodyA, bodyB: eventBodyB, focus: focusedBody,
+  }, window.location.origin), [currentTime, visibleBodies, eventType, eventBodyA, eventBodyB, focusedBody]);
+  const [initialEntry] = useState<ViewEntry | null>(() => readViewEntry(window.history.state)?.entry ?? (
+    initialView ? { solarView: 1, key: crypto.randomUUID(), kind: "shared",
+      search: new URL(shareUrl(initialView, window.location.origin)).search,
+      playing: false, speed: 10, eventResult: null, eventStatus: null } : null
+  ));
+  const historyEntry = useRef(initialEntry);
+  const historySearch = useRef(window.location.search);
+  const activeShare = useRef(initialView ? shareUrl(initialView, window.location.origin) : null);
   const shareView = async () => {
-    const url = shareUrl({ time: currentTime, visibleBodies, eventType, bodyA: eventBodyA, bodyB: eventBodyB, focus: focusedBody }, window.location.origin);
+    const snapshot = (kind: ViewEntry["kind"]): ViewEntry => ({
+      solarView: 1, key: crypto.randomUUID(), kind, search: new URL(viewUrl).search,
+      playing: isPlaying, speed: speedDaysPerSecond, eventResult, eventStatus,
+    });
+    // Preserve the original shared snapshot after edits; save a bare-page draft before its first Share.
+    if (historyEntry.current?.kind !== "shared") {
+      historyEntry.current = snapshot("unshared");
+      window.history.replaceState(historyEntry.current, "", window.location.href);
+    }
+    const shared = { ...snapshot("shared"), playing: false };
+    window.history.pushState(shared, "", viewUrl);
+    historyEntry.current = shared;
+    historySearch.current = window.location.search;
+    activeShare.current = viewUrl;
     setIsPlaying(false);
-    window.history.pushState(null, "", url);
-    setSharedLink(url);
-    try { await navigator.clipboard.writeText(url); } catch { /* selectable link remains available */ }
+    setSharedLink(viewUrl);
+    try { await navigator.clipboard.writeText(viewUrl); } catch { /* selectable link remains available */ }
   };
   useEffect(() => {
-    const restore = () => {
-      const view = readSharedView(window.location.search);
+    if (!activeShare.current || activeShare.current === viewUrl) return;
+    // One history write per shared entry, never one write per animation frame.
+    window.history.replaceState(historyEntry.current, "", window.location.pathname + window.location.hash);
+    historySearch.current = "";
+    activeShare.current = null;
+    setSharedLink(null);
+  }, [viewUrl]);
+  useEffect(() => {
+    const restore = (event: PopStateEvent) => {
+      const saved = readViewEntry(event.state);
+      // Hash navigation clones the same entry. Distinct bare entries still need restoring.
+      if (historySearch.current === window.location.search && (!saved || saved.entry.key === historyEntry.current?.key)) return;
+      const view = saved?.view ?? readSharedView(window.location.search);
+      historyEntry.current = saved?.entry ?? null;
+      historySearch.current = window.location.search;
+      activeShare.current = view && window.location.search ? shareUrl(view, window.location.origin) : null;
       searchController.current?.abort();
-      setIsSearching(false); setIsPlaying(false); setEventResult(null); setEventStatus(null); setSharedLink(null);
+      setIsSearching(false); setIsPlaying(saved?.entry.playing ?? false);
+      setSpeedDaysPerSecond(saved?.entry.speed ?? 10);
+      setEventResult(saved?.entry.eventResult ?? null); setEventStatus(saved?.entry.eventStatus ?? null);
+      setSharedLink(null);
       setCurrentTime(view?.time ?? new Date());
       setVisibleBodies(view?.visibleBodies ?? defaultBodies);
       setEventType(view?.eventType ?? "closestApproach");

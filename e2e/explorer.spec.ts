@@ -395,3 +395,71 @@ test("mobile shared view shows explanation and reduced-motion starts paused", as
   await page.getByRole("button", { name: "Close explanation", exact: true }).click();
   await expect(page.getByRole("img", { name: /Earth-view sky track/ })).toHaveCount(0);
 });
+
+test("Back after the first Share preserves the bare-page draft, result and hash-only navigation", async ({ page }) => {
+  await page.route("**/api/events?**", route => route.fulfill({ json: [
+    { ...event, type: "opposition", timeUtc: "1700-01-02T12:00:00Z", computedTimeUtc: "1700-01-02T12:00:00Z" },
+  ] }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.getByLabel("Jump to date (UTC)").fill("1700-01-01T00:00");
+  await page.getByRole("checkbox", { name: "Mercury", exact: true }).uncheck();
+  await page.getByRole("combobox", { name: "Event type", exact: true }).selectOption("opposition");
+  await page.getByRole("button", { name: "Find", exact: true }).click();
+  await expect(page.getByRole("button", { name: /Next/ })).toBeVisible();
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.goBack();
+  expect(new URL(page.url()).search).toBe("");
+  await expect(page.getByLabel("Jump to date (UTC)")).toHaveValue("1700-01-02T12:00");
+  await expect(page.getByRole("checkbox", { name: "Mercury", exact: true })).not.toBeChecked();
+  await expect(page.getByRole("combobox", { name: "Event type", exact: true })).toHaveValue("opposition");
+  await expect(page.getByRole("button", { name: /Next/ })).toBeVisible();
+  await expect(page.getByText(/Provisional.*queued/i)).toBeVisible();
+  await page.goForward();
+  await expect(page.getByLabel("Jump to date (UTC)")).toHaveValue("1700-01-02T12:00");
+  await page.evaluate(() => { window.location.hash = "x"; });
+  await expect(page.getByRole("button", { name: /Next/ })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("button", { name: /Next/ })).toBeVisible();
+});
+
+test("edits clear stale share links and invalidate the address bar only once", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.getByLabel("Jump to date (UTC)").fill("2027-02-19T15:45");
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  const original = await page.getByLabel("Share link (date, bodies, and focus)").inputValue();
+  await page.evaluate(() => {
+    const replace = history.replaceState.bind(history);
+    Object.assign(window, { replacements: 0 });
+    history.replaceState = (...args) => { (window as unknown as { replacements: number }).replacements++; replace(...args); };
+  });
+  await page.getByLabel("Jump to date (UTC)").fill("2030-06-01T12:00");
+  await expect(page.getByLabel("Share link (date, bodies, and focus)")).toHaveCount(0);
+  expect(new URL(page.url()).search).toBe("");
+  await page.getByRole("checkbox", { name: "Jupiter", exact: true }).uncheck();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await page.evaluate(() => new Promise<void>(resolve => {
+    let frames = 0;
+    const tick = () => { if (++frames === 125) resolve(); else requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }));
+  expect(await page.evaluate(() => (window as unknown as { replacements: number }).replacements)).toBe(1);
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  const updated = await page.getByLabel("Share link (date, bodies, and focus)").inputValue();
+  expect(updated).not.toBe(original);
+  expect(new URL(updated).searchParams.get("bodies")).not.toContain("jupiter");
+  await page.goto(original);
+  await page.getByRole("checkbox", { name: "Mercury", exact: true }).uncheck();
+  await expect.poll(() => new URL(page.url()).search).toBe("");
+});
+
+test("share pages keep canonical SEO without an incorrect home-page Open Graph URL", async ({ page, request }) => {
+  const html = await (await request.get("/?v=1&time=2027-02-19T15:45:00Z")).text();
+  expect(html).toContain('rel="canonical"');
+  expect(html).not.toContain('property="og:url"');
+  await page.goto("/?v=1&time=2027-02-19T15:45:00Z");
+  await page.getByRole("button", { name: "Explain this date", exact: true }).click();
+  await expect(page.getByText("← increasing RA (east)", { exact: true })).toBeVisible();
+});

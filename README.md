@@ -300,6 +300,8 @@ caching are explicit; the runtime container runs as an unprivileged user.
 
 ## Sharing and organic discovery
 
+Share view preserves the current draft (including a loaded event) in browser history before its first share. Back/Forward restore snapshots; hash-only navigation leaves the scene alone. Editing a shared field clears the selectable link and removes its stale query string once, not on every animation frame. Choose Share view again to publish the updated snapshot. Sky tracks use the conventional east-left orientation.
+
 Share view copies a versioned URL and also displays a selectable link if clipboard
 access is unavailable. It preserves UTC time, body visibility, search criteria and
 focused body, opens paused, and supports browser back/forward. It does not preserve
