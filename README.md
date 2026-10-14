@@ -272,8 +272,6 @@ version-prefixed IDs, so old incorrect validations cannot suppress corrected eve
 Only current-version pending events receive backfilled jobs; obsolete queued jobs
 are abandoned without promoting their results. No historical records are deleted.
 
-## Texture credits
-
 ## Catalog rollback and retries
 
 After **any** rollback to an older writer, drain/stop that revision, rerun the
@@ -287,15 +285,7 @@ missing from the indexed query.
 Public catalog reads never schedule validation retries. Use the authenticated
 POST validation endpoint to request retries; reads must remain free of hidden
 JPL work. The durable-worker PR makes this an explicit queued operation.
-<<<<<<< HEAD
 
-## Credits
-
-Planet, Sun, and moon surface textures (`public/textures/`) are the solar-system
-maps by **James Hastings-Trew — [Planet Pixel Emporium](https://planetpixelemporium.com/planets.html)**,
-used with credit per the author's usage terms. See
-[`public/textures/CREDITS.md`](public/textures/CREDITS.md).
-=======
 ### Scientific coverage and acceptance fixtures
 
 Validation uses Mars–Neptune system barycentres (Horizons IDs 4–8), with Earth's
@@ -312,4 +302,11 @@ the 2056 Saturn–Uranus / 2084 Uranus–Neptune farthest-approach regressions.
 Requests and retrieval provenance are in `backend/src/test/resources/jpl/cases/provenance.json`.
 The capture script prints raw numeric samples; normal tests use only the checked-in
 recordings and real application geometry/photometry, not network calls.
->>>>>>> 9011253 (fix: retain uncovered events and validate long-period extrema with JPL fixtures)
+
+
+## Credits
+
+Planet, Sun, and moon surface textures (`public/textures/`) are the solar-system
+maps by **James Hastings-Trew — [Planet Pixel Emporium](https://planetpixelemporium.com/planets.html)**,
+used with credit per the author's usage terms. See
+[`public/textures/CREDITS.md`](public/textures/CREDITS.md).
