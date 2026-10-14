@@ -387,6 +387,14 @@ camera-follow move every frame. React controls publish at most ten updates/secon
 changing the speed does not restart the clock. Long-lived asset cache headers are
 set only after successful resource resolution; missing assets remain no-store.
 
+### Share and history consistency
+
+Share synchronously pauses the live clock before copying its timestamp. Back and
+Forward restore an original share's URL along with its view, while a reload of a
+bare URL ignores stale shared history state. Explicit body focus wins over a
+restored event's pair framing. In-progress search messages are not stored as
+finished history snapshots; share keys do not require a secure-context crypto API.
+
 ## Credits
 
 Planet, Sun, and moon surface textures (`public/textures/`) are the solar-system

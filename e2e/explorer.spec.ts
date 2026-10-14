@@ -463,3 +463,78 @@ test("share pages keep canonical SEO without an incorrect home-page Open Graph U
   await page.getByRole("button", { name: "Explain this date", exact: true }).click();
   await expect(page.getByText("← increasing RA (east)", { exact: true })).toBeVisible();
 });
+test("Back restores an edited share's URL, and reload ignores a mismatched history snapshot", async ({ page }) => {
+  const date = page.getByLabel("Jump to date (UTC)");
+  const share = page.getByRole("button", { name: "Share view", exact: true });
+  await page.goto("/?v=1&time=2027-01-01T00:00:00Z");
+  await share.click();
+  const first = page.url();
+  await date.fill("2028-01-01T00:00");
+  await share.click();
+  await page.goBack();
+  await expect(date).toHaveValue("2027-01-01T00:00");
+  await expect(page).toHaveURL(first);
+  await page.reload();
+  await expect(date).toHaveValue("2027-01-01T00:00");
+
+  // A stripped shared entry survives reload in history.state, but must not own the new draft.
+  await date.fill("2028-01-01T00:00");
+  await expect.poll(() => new URL(page.url()).search).toBe("");
+  await page.reload();
+  await date.fill("1700-01-01T00:00");
+  await share.click();
+  await page.goBack();
+  await expect(date).toHaveValue("1700-01-01T00:00");
+  expect(new URL(page.url()).search).toBe("");
+});
+
+test("shared views and Share work when crypto.randomUUID is unavailable", async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(crypto, "randomUUID", { value: undefined }));
+  await page.goto("/?v=1&time=1700-01-01T00:00:00Z");
+  await expect(page.getByLabel("Jump to date (UTC)")).toHaveValue("1700-01-01T00:00");
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await expect(page.getByLabel("Share link (date, bodies, and focus)")).toBeVisible();
+});
+
+test("Share immediately after a queued playback tick keeps one exact paused timestamp", async ({ page }) => {
+  await page.addInitScript(() => {
+    let next = 0;
+    const queued = new Map<number, FrameRequestCallback>();
+    window.requestAnimationFrame = callback => { queued.set(++next, callback); return next; };
+    window.cancelAnimationFrame = id => { queued.delete(id); };
+    Object.assign(window, { stepFrame: (now: number) => {
+      const callbacks = [...queued.values()]; queued.clear();
+      callbacks.forEach(callback => callback(now));
+    } });
+  });
+  await page.goto("/?v=1&time=2027-01-01T00:00:00Z");
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await page.evaluate(() => {
+    const step = (window as unknown as { stepFrame: (now: number) => void }).stepFrame;
+    step(1000); step(1110); // publish a tick without letting React render it yet
+    [...document.querySelectorAll("button")].find(b => b.textContent === "Share view")!.click();
+    step(1210); // callback already queued before Share must now be inert
+  });
+  const expected = "2027-01-02T02:24:00.000Z"; // 110 ms at 10 simulated days/sec
+  await expect(page.getByLabel("Jump to date (UTC)")).toHaveValue("2027-01-02T02:24");
+  const link = await page.getByLabel("Share link (date, bodies, and focus)").inputValue();
+  expect(new URL(link).searchParams.get("time")).toBe(expected);
+  await expect(page).toHaveURL(link);
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+});
+
+test("sharing an active search never restores a phantom Searching status", async ({ page }) => {
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/events?**", async route => { await pending; await route.fulfill({ json: [event] }); });
+  await page.goto("/?v=1&time=2026-01-01T00:00:00Z");
+  await page.getByRole("button", { name: "Find", exact: true }).click();
+  await expect(page.getByText("Searching for next event...", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.goBack();
+  await expect(page.getByRole("button", { name: "Find", exact: true })).toBeEnabled();
+  await expect(page.getByText("Searching for next event...", { exact: true })).toHaveCount(0);
+  await page.goForward();
+  await expect(page.getByText("Searching for next event...", { exact: true })).toHaveCount(0);
+  release();
+});

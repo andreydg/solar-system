@@ -165,6 +165,20 @@ describe("SceneCamera event framing", () => {
 });
 
 describe("SceneCamera body focus", () => {
+  it("restored focus wins over a new event identity and repeated Back/Forward does not re-fly the pair", async () => {
+    const positions = onXAxis(1, 3);
+    const view = await mountSceneCamera({ focusedBody: null, highlightedBodies: [], positions });
+    await view.rerender({ focusedBody: "mars", highlightedBodies: ["earth", "mars"], positions });
+    expect(view.target()).toEqual([9.6, 0, 0]);
+    const camera = view.camera();
+    for (let i = 0; i < 3; i++) {
+      await view.rerender({ focusedBody: "mars", highlightedBodies: ["earth", "mars"], positions: [...positions] }, { thenSettle: false });
+      await view.advance(1); // catch even a transient flight toward the pair
+      expect(view.camera()).toEqual(camera);
+      expect(view.target()).toEqual([9.6, 0, 0]);
+    }
+  });
+
   it("flies to a focused body and lets you zoom in close to it", async () => {
     const view = await mountSceneCamera({ focusedBody: null, highlightedBodies: NO_EVENT, positions: onXAxis(1, 3) });
 

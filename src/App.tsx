@@ -24,12 +24,15 @@ type ViewEntry = {
   solarView: 1; key: string; kind: "shared" | "unshared"; search: string;
   playing: boolean; speed: number; eventResult: DisplayEvent | null; eventStatus: string | null;
 };
-function readViewEntry(value: unknown): { entry: ViewEntry; view: SharedView } | null {
+// History identity only, not a security token; works on plain HTTP too.
+const viewEntryKey = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+function readViewEntry(value: unknown, expectedSearch?: string): { entry: ViewEntry; view: SharedView } | null {
   if (!value || typeof value !== "object") return null;
   const entry = value as ViewEntry;
   if (entry.solarView !== 1 || typeof entry.key !== "string" || !["shared", "unshared"].includes(entry.kind)
       || typeof entry.search !== "string" || typeof entry.playing !== "boolean"
       || !Number.isFinite(entry.speed) || entry.speed <= 0) return null;
+  if (expectedSearch !== undefined && entry.search !== expectedSearch) return null;
   const view = readSharedView(entry.search);
   return view ? { entry, view } : null;
 }
@@ -61,8 +64,8 @@ export default function App() {
   const viewUrl = useMemo(() => shareUrl({
     time: currentTime, visibleBodies, eventType, bodyA: eventBodyA, bodyB: eventBodyB, focus: focusedBody,
   }, window.location.origin), [currentTime, visibleBodies, eventType, eventBodyA, eventBodyB, focusedBody]);
-  const [initialEntry] = useState<ViewEntry | null>(() => readViewEntry(window.history.state)?.entry ?? (
-    initialView ? { solarView: 1, key: crypto.randomUUID(), kind: "shared",
+  const [initialEntry] = useState<ViewEntry | null>(() => readViewEntry(window.history.state, window.location.search)?.entry ?? (
+    initialView ? { solarView: 1, key: viewEntryKey(), kind: "shared",
       search: new URL(shareUrl(initialView, window.location.origin)).search,
       playing: false, speed: 10, eventResult: null, eventStatus: null } : null
   ));
@@ -70,9 +73,12 @@ export default function App() {
   const historySearch = useRef(window.location.search);
   const activeShare = useRef(initialView ? shareUrl(initialView, window.location.origin) : null);
   const shareView = async () => {
+    const time = pauseClock();
+    setIsPlaying(false);
+    const url = shareUrl({ time, visibleBodies, eventType, bodyA: eventBodyA, bodyB: eventBodyB, focus: focusedBody }, window.location.origin);
     const snapshot = (kind: ViewEntry["kind"]): ViewEntry => ({
-      solarView: 1, key: crypto.randomUUID(), kind, search: new URL(viewUrl).search,
-      playing: isPlaying, speed: speedDaysPerSecond, eventResult, eventStatus,
+      solarView: 1, key: viewEntryKey(), kind, search: new URL(url).search,
+      playing: isPlaying, speed: speedDaysPerSecond, eventResult, eventStatus: isSearching ? null : eventStatus,
     });
     // Preserve the original shared snapshot after edits; save a bare-page draft before its first Share.
     if (historyEntry.current?.kind !== "shared") {
@@ -80,13 +86,12 @@ export default function App() {
       window.history.replaceState(historyEntry.current, "", window.location.href);
     }
     const shared = { ...snapshot("shared"), playing: false };
-    window.history.pushState(shared, "", viewUrl);
+    window.history.pushState(shared, "", url);
     historyEntry.current = shared;
     historySearch.current = window.location.search;
-    activeShare.current = viewUrl;
-    setIsPlaying(false);
-    setSharedLink(viewUrl);
-    try { await navigator.clipboard.writeText(viewUrl); } catch { /* selectable link remains available */ }
+    activeShare.current = url;
+    setSharedLink(url);
+    try { await navigator.clipboard.writeText(url); } catch { /* selectable link remains available */ }
   };
   useEffect(() => {
     if (!activeShare.current || activeShare.current === viewUrl) return;
@@ -102,6 +107,11 @@ export default function App() {
       // Hash navigation clones the same entry. Distinct bare entries still need restoring.
       if (historySearch.current === window.location.search && (!saved || saved.entry.key === historyEntry.current?.key)) return;
       const view = saved?.view ?? readSharedView(window.location.search);
+      // An edited share retains its original snapshot. Restore its copyable URL once on Back.
+      if (saved?.entry.kind === "shared" && !window.location.search) {
+        window.history.replaceState(saved.entry, "", window.location.pathname + saved.entry.search + window.location.hash);
+      }
+      if (!saved?.entry.playing) pauseClock();
       historyEntry.current = saved?.entry ?? null;
       historySearch.current = window.location.search;
       activeShare.current = view && window.location.search ? shareUrl(view, window.location.origin) : null;
@@ -118,7 +128,7 @@ export default function App() {
     };
     window.addEventListener("popstate", restore);
     return () => window.removeEventListener("popstate", restore);
-  }, []);
+  }, [pauseClock, setCurrentTime]);
 
   const eventPairIsValid = useMemo(
     () => isValidEventPair(eventType, eventBodyA, eventBodyB),
