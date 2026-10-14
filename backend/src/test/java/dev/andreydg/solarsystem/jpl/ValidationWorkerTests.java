@@ -162,6 +162,23 @@ class ValidationWorkerTests {
         assertThat(repository.claim(NOW, Duration.ofMinutes(10))).isPresent();
     }
 
+    @Test void publicFailureSummaryNeverContainsRawExceptionText() {
+        repository.upsertAll(List.of(event()));
+        when(validation.validateEvent("event")).thenThrow(new JplHorizonsException("<html>private-token-" + "x".repeat(5000)));
+        assertThat(worker(NOW, true).drainOne()).isEqualTo("failed");
+        var result = repository.findById("event").orElseThrow();
+        assertThat(result.jplRawSummary()).hasSizeLessThan(200).doesNotContain("private-token", "<html>");
+    }
+    @Test void budgetDeferralDoesNotSpendAnAttemptOrHideAnEvent() {
+        repository.upsertAll(List.of(event()));
+        when(validation.validateEvent("event")).thenThrow(new ValidationBudget.Exhausted());
+        assertThat(worker(NOW, true).drainOne()).isEqualTo("budget-deferred");
+        assertThat(repository.findById("event")).contains(event());
+        var reclaimed = repository.claim(NOW.plusSeconds(2), Duration.ofMinutes(10)).orElseThrow();
+        assertThat(reclaimed.attempt()).isEqualTo(1);
+        repository.abandon(reclaimed, "done", NOW.plusSeconds(2));
+    }
+
     private CatalogEvent event() {
         return new CatalogEvent("event", EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS,
             NOW, 0.6, null, null, "TEST", null, null, null, null, null, ValidationStatus.PENDING,

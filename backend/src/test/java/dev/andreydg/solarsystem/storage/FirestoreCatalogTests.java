@@ -199,6 +199,37 @@ class FirestoreCatalogTests {
         assertThat(firestore.collection(collection + "-validation").document("rejected").get().get().getString("state")).isEqualTo("failed");
     }
 
+    @Test void poisonJobsOrDeletedEventsCannotWedgeRecoveryAndDeferralRefundsTheAttempt() throws Exception {
+        var jobs = new FirestoreValidationJobs(firestore, new FirestoreProperties(collection, "(default)", System.getenv("FIRESTORE_EMULATOR_HOST")));
+        var now = Instant.now();
+        firestore.collection(collection + "-validation").document("a-poison").set(Map.of("state", "ready", "availableAt", FirestoreEventCatalogRepository.timestamp(now.minusSeconds(1)))).get();
+        repository.upsert(event("good", TIME, BodyId.MARS));
+        jobs.enqueue("good", now);
+        var lease = jobs.claim(now, java.time.Duration.ofMinutes(10)).orElseThrow();
+        assertThat(lease.eventId()).isEqualTo("good");
+        assertThat(firestore.collection(collection + "-validation").document("a-poison").get().get().contains("availableAt")).isFalse();
+        assertThat(jobs.defer(lease, now.plusSeconds(1), now)).isTrue();
+        assertThat(jobs.claim(now, java.time.Duration.ofMinutes(10))).isEmpty();
+        lease = jobs.claim(now.plusSeconds(1), java.time.Duration.ofMinutes(10)).orElseThrow();
+        assertThat(lease.attempt()).isEqualTo(1);
+        jobs.abandon(lease, "Retry budget exhausted", now.plusSeconds(1));
+        firestore.collection(collection + "-validation").document("a-deleted").set(Map.of("retryExhausted", true, "state", "failed")).get();
+        var recovered = jobs.requeueExhausted(null, 100, now.plusSeconds(2));
+        assertThat(recovered.queued()).isEqualTo(1);
+        assertThat(jobs.requeueExhausted(null, 100, now.plusSeconds(2)).queued()).isZero();
+        assertThat(firestore.collection(collection + "-validation").document("a-deleted").get().get().getBoolean("retryExhausted")).isFalse();
+    }
+    @Test void privateFailureTextLivesOnlyOnTheJob() throws Exception {
+        var jobs = new FirestoreValidationJobs(firestore, new FirestoreProperties(collection, "(default)", System.getenv("FIRESTORE_EMULATOR_HOST")));
+        repository.upsert(event("private", TIME, BodyId.MARS));
+        var now = Instant.now(); jobs.enqueue("private", now);
+        var lease = jobs.claim(now, java.time.Duration.ofMinutes(10)).orElseThrow();
+        String raw = "<html>private:" + "secret".repeat(800);
+        jobs.complete(lease, event("private", TIME, BodyId.MARS).failed("Safe public reason"), now, raw);
+        assertThat(repository.findById("private").orElseThrow().jplRawSummary()).doesNotContain("secret", "<html>");
+        assertThat(firestore.collection(collection + "-validation").document("private").get().get().getString("lastError")).isEqualTo(raw);
+    }
+
     private CatalogQuery query(boolean descending, int limit, String cursor) {
         return new CatalogQuery(EventType.OPPOSITION, BodyId.MARS, BodyId.EARTH, TIME.minusSeconds(1), TIME.plusSeconds(20),
             true, descending, limit, cursor);

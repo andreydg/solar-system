@@ -34,7 +34,7 @@ public class ValidationWorker {
             int processed = 0;
             while (processed < 200 && ValidationBudget.hasTime()) {
                 String status = drainOne();
-                if (status.equals("idle-or-busy") || status.equals("paused") || status.equals("lease-lost"))
+                if (status.equals("idle-or-busy") || status.equals("paused") || status.equals("lease-lost") || status.equals("budget-deferred"))
                     return new DrainResult(status, processed);
                 processed++;
             }
@@ -76,21 +76,26 @@ public class ValidationWorker {
             return abandon(lease, "Unreadable catalog event: " + failure.getClass().getSimpleName());
         }
         CatalogEvent result;
+        String privateError = null;
         try {
             // Explicit requeues always revalidate, while the last accepted values remain served.
             result = validation.validateEvent(event.id());
+        } catch (ValidationBudget.Exhausted budget) {
+            return jobs.defer(lease, clock.instant().plusSeconds(1), clock.instant()) ? "budget-deferred" : "lease-lost";
         } catch (RuntimeException failure) {
-            log.warn("Validation attempt {} failed for {}: {}", lease.attempt(), event.id(), failure.toString());
+            log.warn("Validation attempt {} failed for {}: {}", lease.attempt(), event.id(), failure.getClass().getSimpleName());
             boolean transientFailure = failure instanceof JplHorizonsException jpl && jpl.isTransient()
                 || failure instanceof EventCatalogStorageException;
             if (transientFailure) return retry(lease, "Temporary validation failure");
-            String reason = failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
-            if (event.validationStatus() == ValidationStatus.VALIDATED) return abandon(lease, reason);
-            result = event.failed(reason);
+            String reason = failure.toString();
+            privateError = reason.substring(0, Math.min(8000, reason.length()));
+            if (event.validationStatus() == ValidationStatus.VALIDATED) return abandon(lease, privateError);
+            result = event.failed("JPL did not confirm this event. An administrator can inspect the validation job.");
         }
         // A failed write says nothing about geometry. Leave the event unchanged and reschedule.
         try {
-            return jobs.complete(lease, result, clock.instant())
+            return (privateError == null ? jobs.complete(lease, result, clock.instant())
+                : jobs.complete(lease, result, clock.instant(), privateError))
                 ? (result.validationStatus() == ValidationStatus.VALIDATED ? "validated" : "failed") : "lease-lost";
         } catch (EventCatalogStorageException failure) {
             return retry(lease, "Temporary validation result storage failure");

@@ -33,9 +33,24 @@ public class FirestoreValidationJobs implements ValidationJobs {
                 var gateSnapshot = tx.get(gate()).get();
                 if (gateSnapshot.exists() && instant(gateSnapshot.getTimestamp("until")).isAfter(now)) return Optional.<Lease>empty();
                 var due = tx.get(firestore.collection(collection + "-validation")
-                    .whereLessThanOrEqualTo("availableAt", timestamp(now)).orderBy("availableAt").limit(1)).get().getDocuments();
+                    .whereLessThanOrEqualTo("availableAt", timestamp(now)).orderBy("availableAt").limit(20)).get().getDocuments();
                 if (due.isEmpty()) return Optional.<Lease>empty();
-                var document = due.getFirst();
+                QueryDocumentSnapshot document = null;
+                for (var candidate : due) {
+                    try {
+                        Long attempts = candidate.getLong("attempts");
+                        if (attempts == null || attempts < 0 || attempts >= Integer.MAX_VALUE
+                            || !Set.of("ready", "leased").contains(candidate.getString("state")))
+                            throw new IllegalArgumentException("Invalid job fields");
+                        document = candidate;
+                        break;
+                    } catch (RuntimeException malformed) {
+                        tx.update(candidate.getReference(), Map.of("state", "failed", "retryExhausted", false,
+                            "lastError", "Malformed validation job; repair before requeue",
+                            "availableAt", FieldValue.delete(), "finishedAt", timestamp(now)));
+                    }
+                }
+                if (document == null) return Optional.<Lease>empty();
                 String token = UUID.randomUUID().toString();
                 int attempt = Math.toIntExact(document.getLong("attempts")) + 1;
                 var until = timestamp(now.plus(duration));
@@ -50,12 +65,20 @@ public class FirestoreValidationJobs implements ValidationJobs {
     }
 
     @Override public boolean complete(Lease lease, CatalogEvent result, Instant now) {
+        return complete(lease, result, now, null);
+    }
+    @Override public boolean complete(Lease lease, CatalogEvent result, Instant now, String privateError) {
         if (!lease.eventId().equals(result.id())) throw new IllegalArgumentException("Lease/event mismatch");
         return finish(lease, now, tx -> {
             tx.set(firestore.collection(collection).document(result.id()), toDocument(result));
+            if (privateError != null) tx.update(job(lease.eventId()), "lastError", privateError);
             tx.update(job(lease.eventId()), Map.of("state", result.validationStatus() == ValidationStatus.VALIDATED ? "done" : "failed",
                 "availableAt", FieldValue.delete(), "finishedAt", timestamp(now)));
         });
+    }
+    @Override public boolean defer(Lease lease, Instant availableAt, Instant now) {
+        return finish(lease, now, tx -> tx.update(job(lease.eventId()), Map.of("availableAt", timestamp(availableAt),
+            "state", "ready", "attempts", Math.max(0, lease.attempt() - 1), "lastError", "Worker time budget; deferred without charge")));
     }
     @Override public boolean retry(Lease lease, Instant availableAt, String reason, Instant now) {
         return finish(lease, now, tx -> tx.update(job(lease.eventId()), Map.of("availableAt", timestamp(availableAt),
@@ -92,11 +115,28 @@ public class FirestoreValidationJobs implements ValidationJobs {
             if (after != null) query = query.startAfter(job(after));
             var documents = query.get().get().getDocuments();
             var page = documents.subList(0, Math.min(limit, documents.size()));
-            for (var document : page) enqueue(document.getId(), now);
-            return new RecoveryPage(page.size(), documents.size() > limit ? page.getLast().getId() : null);
+            int queued = 0;
+            for (var document : page) if (recoverOne(document.getId(), now)) queued++;
+            return new RecoveryPage(queued, documents.size() > limit ? page.getLast().getId() : null);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt(); throw new EventCatalogStorageException("Interrupted recovering jobs", e);
         } catch (ExecutionException e) { throw new EventCatalogStorageException("Failed recovering jobs", e); }
+    }
+
+    private boolean recoverOne(String id, Instant now) throws InterruptedException, ExecutionException {
+        return firestore.runTransaction(tx -> {
+            var docs = tx.getAll(firestore.collection(collection).document(id), job(id)).get();
+            var prior = docs.get(1);
+            if (!prior.exists() || !Boolean.TRUE.equals(prior.getBoolean("retryExhausted"))) return false;
+            if (!docs.get(0).exists()) {
+                tx.update(job(id), Map.of("retryExhausted", false, "state", "failed",
+                    "lastError", "Catalog event missing; skipped recovery", "availableAt", FieldValue.delete()));
+                return false;
+            }
+            if ("leased".equals(prior.getString("state")) && instant(prior.getTimestamp("availableAt")).isAfter(now)) return false;
+            tx.set(job(id), initial(now));
+            return true;
+        }).get();
     }
 
     @Override public void enqueue(String id, Instant now) {

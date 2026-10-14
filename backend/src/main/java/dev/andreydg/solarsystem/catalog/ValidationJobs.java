@@ -8,6 +8,10 @@ import java.util.Optional;
 public interface ValidationJobs {
     Optional<Lease> claim(Instant now, Duration duration);
     boolean complete(Lease lease, CatalogEvent result, Instant now);
+    default boolean complete(Lease lease, CatalogEvent result, Instant now, String privateError) {
+        return complete(lease, result, now);
+    }
+    boolean defer(Lease lease, Instant availableAt, Instant now);
     boolean retry(Lease lease, Instant availableAt, String reason, Instant now);
     boolean abandon(Lease lease, String reason, Instant now);
     void enqueue(String eventId, Instant now);

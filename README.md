@@ -135,7 +135,11 @@ permanent/exhausted failures stop until an administrator explicitly requeues the
 
 Configure **one** deployment-level scheduler to POST `/api/admin/validation/drain`
 over HTTPS with the admin Bearer token. Each request drains up to 200 due jobs or eight minutes of work;
-allow up to ten minutes for the HTTP request, and start with a one-minute schedule.
+set Cloud Run's **request timeout** to at least 600 seconds and Cloud Scheduler's
+**attempt deadline** to at least 600 seconds (for example `gcloud run services update SERVICE --timeout=600s`
+and `gcloud scheduler jobs update http JOB --attempt-deadline=600s`).
+The defaults are not sufficient for this worker. Start with a one-minute schedule.
+A budget-limited in-flight job is deferred without consuming its attempt allowance.
 Overlapping invocations safely return `idle-or-busy`. Do not put this trigger or
 token in browser code. This PR does not provision the scheduler, secret, or IAM.
 Without a worker trigger, events remain honestly PENDING; they are not silently

@@ -450,23 +450,6 @@ public class JplValidationService {
         return diff > 180.0 ? diff - 360.0 : diff;
     }
 
-    private static String sanitizeFailureMessage(RuntimeException exception) {
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) {
-            return "unknown error";
-        }
-
-        String stripped = message
-            .replaceAll("(?is)<[^>]*>", " ")
-            .replaceAll("\\s+", " ")
-            .trim();
-
-        if (stripped.length() > 220) {
-            return stripped.substring(0, 220) + "...";
-        }
-
-        return stripped;
-    }
 
     private record DistanceSample(Instant time, double distanceAu) {
     }

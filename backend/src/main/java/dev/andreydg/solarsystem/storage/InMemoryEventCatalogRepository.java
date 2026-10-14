@@ -85,6 +85,13 @@ public class InMemoryEventCatalogRepository implements EventCatalogRepository, V
         leaseUntil = Instant.MIN;
         return true;
     }
+    @Override public synchronized boolean defer(Lease lease, Instant availableAt, Instant now) {
+        if (!owns(lease, now)) return false;
+        jobs.put(lease.eventId(), new Job(Math.max(0, lease.attempt() - 1), availableAt, null));
+        activeLease = null;
+        leaseUntil = Instant.MIN;
+        return true;
+    }
     @Override public synchronized boolean retry(Lease lease, Instant availableAt, String reason, Instant now) {
         if (!owns(lease, now)) return false;
         jobs.put(lease.eventId(), new Job(lease.attempt(), availableAt, null));
@@ -107,8 +114,13 @@ public class InMemoryEventCatalogRepository implements EventCatalogRepository, V
             throw new IllegalArgumentException("Invalid recovery cursor");
         var page = exhausted.stream().filter(id -> after == null || id.compareTo(after) > 0).sorted().limit(limit + 1L).toList();
         var selected = page.stream().limit(limit).toList();
-        selected.forEach(id -> enqueue(id, now));
-        return new RecoveryPage(selected.size(), page.size() > limit ? selected.getLast() : null);
+        int queued = 0;
+        for (String id : selected) {
+            if (!events.containsKey(id)) { exhausted.remove(id); jobs.remove(id); continue; }
+            enqueue(id, now);
+            queued++;
+        }
+        return new RecoveryPage(queued, page.size() > limit ? selected.getLast() : null);
     }
 
     @Override public synchronized boolean abandon(Lease lease, String reason, Instant now) {
