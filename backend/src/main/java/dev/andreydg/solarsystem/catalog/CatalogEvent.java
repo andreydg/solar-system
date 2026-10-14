@@ -51,7 +51,7 @@ public record CatalogEvent(
     }
     /** Data unavailable is not evidence that the provisional event is geometrically false. */
     public CatalogEvent unavailable(String summary) {
-        if (validationStatus == ValidationStatus.VALIDATED) return this;
+        if (validationStatus != ValidationStatus.PENDING) return this;
         return new CatalogEvent(id, type, bodyA, bodyB, computedTimeUtc, computedDistanceAu, computedAngleDeg,
             computedMagnitude, computedSource, null, null, null, null, null, ValidationStatus.UNAVAILABLE,
             rangeStartUtc, rangeEndUtc, generatedAtUtc, Instant.now(), null, summary, algorithmVersion);

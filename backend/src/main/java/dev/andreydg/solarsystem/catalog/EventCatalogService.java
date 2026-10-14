@@ -205,9 +205,10 @@ public class EventCatalogService {
         List<DistanceSample> candidates = new ArrayList<>();
         Duration coarseStep = coarseStepFor(bodyA, bodyB, from, to);
         DistanceSample previous = null;
-        DistanceSample current = sampleDistance(bodyA, bodyB, from);
+        Instant scanStart = from.minus(coarseStep), scanEnd = to.plus(coarseStep.multipliedBy(2));
+        DistanceSample current = sampleDistance(bodyA, bodyB, scanStart);
 
-        for (Instant time = from.plus(coarseStep); !time.isAfter(to); time = time.plus(coarseStep)) {
+        for (Instant time = from; !time.isAfter(scanEnd); time = time.plus(coarseStep)) {
             DistanceSample next = sampleDistance(bodyA, bodyB, time);
 
             if (previous != null && isLocalExtremum(previous, current, next, findMinimum)) {
@@ -224,8 +225,8 @@ public class EventCatalogService {
             .map(candidate -> refineDistanceExtremum(
                 bodyA,
                 bodyB,
-                later(from, candidate.time().minus(coarseStep.multipliedBy(2))),
-                earlier(to, candidate.time().plus(coarseStep.multipliedBy(2))),
+                later(scanStart, candidate.time().minus(coarseStep.multipliedBy(2))),
+                earlier(scanEnd, candidate.time().plus(coarseStep.multipliedBy(2))),
                 Duration.ofHours(1),
                 findMinimum
             ))
@@ -480,8 +481,10 @@ public class EventCatalogService {
         BodyId target = targetBody(earthPair);
         requireSmallBody(target);
 
+        Instant scanStart = from.minus(PERIHELION_COARSE_STEP);
+        Instant scanEnd = to.plus(PERIHELION_COARSE_STEP.multipliedBy(2));
         List<DistanceSample> samples = ephemerisProvider
-            .heliocentricDistanceSamples(target, from, to, PERIHELION_COARSE_STEP)
+            .heliocentricDistanceSamples(target, scanStart, scanEnd, PERIHELION_COARSE_STEP)
             .stream()
             .map(sample -> new DistanceSample(sample.timeUtc(), sample.distanceAu()))
             .toList();
@@ -508,8 +511,8 @@ public class EventCatalogService {
         return candidates.stream()
             .map(candidate -> refineHeliocentricMinimum(
                 target,
-                later(from, candidate.time().minus(PERIHELION_COARSE_STEP.multipliedBy(2))),
-                earlier(to, candidate.time().plus(PERIHELION_COARSE_STEP.multipliedBy(2))),
+                later(scanStart, candidate.time().minus(PERIHELION_COARSE_STEP.multipliedBy(2))),
+                earlier(scanEnd, candidate.time().plus(PERIHELION_COARSE_STEP.multipliedBy(2))),
                 Duration.ofHours(6)
             ))
             .distinct()

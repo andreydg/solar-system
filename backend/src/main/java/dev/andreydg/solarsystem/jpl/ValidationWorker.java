@@ -110,7 +110,7 @@ public class ValidationWorker {
             + " " + boundary.group(2) + "." : "JPL ephemeris is unavailable for this target and date.";
     }
     private String retry(ValidationJobs.Lease lease, String reason, CatalogEvent event) {
-        if (lease.attempt() >= MAX_ATTEMPTS && event.validationStatus() != ValidationStatus.VALIDATED) {
+        if (lease.attempt() >= MAX_ATTEMPTS && event.validationStatus() == ValidationStatus.PENDING) {
             return jobs.complete(lease, event.unavailable("Retry budget exhausted: " + reason), clock.instant()) ? "failed" : "lease-lost";
         }
         return retry(lease, reason);

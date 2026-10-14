@@ -37,6 +37,24 @@ class EventCatalogServiceTests {
             BodyId.URANUS, BodyId.NEPTUNE, from.minusSeconds(10000000), to, false, false, 100, null)).events()).isEmpty();
     }
 
+    @Test void actualSlowPlanetExtremaRemainDiscoverableBesideBothWindowEdges() {
+        Object[][] cases = {
+            {EventType.FARTHEST_APPROACH, BodyId.SATURN, BodyId.URANUS, "2056-02-20T10:00:00Z"},
+            {EventType.CLOSEST_APPROACH, BodyId.SATURN, BodyId.NEPTUNE, "2025-09-11T12:00:00Z"},
+            {EventType.CLOSEST_APPROACH, BodyId.URANUS, BodyId.NEPTUNE, "1822-10-22T12:00:00Z"}
+        };
+        for (Object[] c : cases) {
+            Instant expected = Instant.parse((String)c[3]);
+            for (boolean atStart : List.of(true, false)) {
+                Instant from = expected.minus(java.time.Duration.ofDays(atStart ? 2 : 25 * 365));
+                Instant to = expected.plus(java.time.Duration.ofDays(atStart ? 25 * 365 : 2));
+                var events = service.generate((EventType)c[0], (BodyId)c[1], (BodyId)c[2], from, to);
+                assertThat(events).as(java.util.Arrays.toString(c) + " atStart=" + atStart).anySatisfy(event ->
+                    assertThat(java.time.Duration.between(expected, event.computedTimeUtc()).abs()).isLessThan(java.time.Duration.ofDays(2)));
+            }
+        }
+    }
+
     @Test void negativeCacheDoesNotResurrectInvalidStoredTransit() {
         Instant from = Instant.parse("2035-01-01T00:00:00Z");
         Instant to = Instant.parse("2036-01-01T00:00:00Z");

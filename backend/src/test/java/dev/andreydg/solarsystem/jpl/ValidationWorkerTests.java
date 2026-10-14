@@ -192,6 +192,20 @@ class ValidationWorkerTests {
         assertThat(worker(NOW.plusSeconds(10000), true).drainOne()).isEqualTo("idle-or-busy");
     }
 
+    @Test void rejectedEventCannotBecomeProvisionalAfterAnOutage() {
+        var rejected = event().failed("Geometry rejected");
+        repository.upsert(rejected);
+        repository.enqueue(rejected.id(), NOW);
+        when(validation.validateEvent("event")).thenThrow(new JplHorizonsException("outage", true));
+        Instant time = NOW;
+        for (int i = 1; i <= ValidationWorker.MAX_ATTEMPTS; i++) {
+            worker(time, true).drainOne();
+            time = time.plus(ValidationWorker.retryDelay(i));
+        }
+        assertThat(repository.findById("event")).contains(rejected);
+        assertThat(rejected.unavailable("new coverage failure")).isSameAs(rejected);
+    }
+
     private CatalogEvent event() {
         return new CatalogEvent("event", EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS,
             NOW, 0.6, null, null, "TEST", null, null, null, null, null, ValidationStatus.PENDING,
