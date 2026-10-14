@@ -270,4 +270,3 @@ function minDate(left: Date, right: Date) {
 function maxDate(left: Date, right: Date) {
   return left > right ? left : right;
 }
-

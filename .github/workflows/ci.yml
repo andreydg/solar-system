@@ -81,4 +81,3 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Packaged production-asset E2E tests
         run: npm run test:e2e
-
