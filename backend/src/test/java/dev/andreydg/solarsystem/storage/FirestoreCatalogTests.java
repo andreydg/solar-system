@@ -94,6 +94,23 @@ class FirestoreCatalogTests {
         }
     }
 
+    @Test void corruptExistingRecordsAreQuarantinedAndRepairedWithoutRollingBackSiblings() throws Exception {
+        var repaired = event("broken", TIME, BodyId.MARS);
+        var corrupt = new HashMap<>(FirestoreEventCatalogRepository.toDocument(repaired));
+        corrupt.put("computedTimeUtc", "not-a-date");
+        var ref = firestore.collection(collection).document("broken");
+        ref.set(corrupt).get();
+        var sibling = event("sibling", TIME, BodyId.JUPITER);
+        assertThat(repository.upsertAll(List.of(repaired, sibling))).containsExactly(repaired, sibling);
+        assertThat(repository.findById("broken")).contains(repaired);
+        assertThat(repository.findById("sibling")).contains(sibling);
+        var quarantine = ref.collection("_corrupt").get().get().getDocuments();
+        assertThat(quarantine).hasSize(1);
+        assertThat(quarantine.getFirst().getData()).isEqualTo(corrupt);
+        assertThat(repository.upsertAll(List.of(repaired, sibling))).containsExactly(repaired, sibling);
+        assertThat(ref.collection("_corrupt").get().get().size()).isEqualTo(1);
+    }
+
     private CatalogQuery query(boolean descending, int limit, String cursor) {
         return new CatalogQuery(EventType.OPPOSITION, BodyId.MARS, BodyId.EARTH, TIME.minusSeconds(1), TIME.plusSeconds(20),
             true, descending, limit, cursor);

@@ -8,8 +8,9 @@ import dev.andreydg.solarsystem.config.FirestoreProperties;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
+@org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
 class IndexedQueryFailureTests {
-    @Test void buildingIndexIsServiceUnavailableNotAnInternalError() {
+    @Test void buildingIndexIsServiceUnavailableNotAnInternalError(org.springframework.boot.test.system.CapturedOutput output) {
         var firestore = mock(Firestore.class);
         var collection = mock(CollectionReference.class, RETURNS_SELF);
         var metadata = mock(DocumentReference.class);
@@ -26,5 +27,6 @@ class IndexedQueryFailureTests {
             Instant.parse("2028-01-01T00:00:00Z"), false, false, 1, null);
         assertThatThrownBy(() -> repository.search(query))
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class).hasMessageContaining("503");
+        assertThat(output.getAll()).contains("Catalog index query is not ready", "Index building");
     }
 }

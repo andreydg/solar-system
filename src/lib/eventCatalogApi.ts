@@ -193,7 +193,9 @@ async function queryEvents(
     if (!cursor) return [];
     params.set("cursor", cursor);
   }
-  throw new Error("Catalog scan limit reached; narrow the date range and retry.");
+  // A bounded regeneration repairs corrupt records and searches this same window.
+  // Next/Prev has no narrower-range control, so do not strand users at this cap.
+  return [];
 }
 
 async function generateEvents(

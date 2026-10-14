@@ -29,8 +29,8 @@ import org.springframework.stereotype.Repository;
 @ConditionalOnProperty(name = "solar-system.storage", havingValue = "firestore", matchIfMissing = true)
 public class FirestoreEventCatalogRepository implements EventCatalogRepository {
     private static final Logger log = LoggerFactory.getLogger(FirestoreEventCatalogRepository.class);
-    // Firestore caps a batched write at 500 operations; stay under it with margin.
-    private static final int MAX_BATCH_SIZE = 200;
+    // Transactions may write an event, a quarantine copy, and (in the worker layer) a job.
+    private static final int MAX_BATCH_SIZE = 100;
 
     private final Firestore firestore;
     private final String collection;
@@ -52,8 +52,18 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
                     var snapshots = transaction.getAll(refs.toArray(com.google.cloud.firestore.DocumentReference[]::new)).get();
                     List<CatalogEvent> actual = new ArrayList<>();
                     for (int i = 0; i < chunk.size(); i++) {
-                        if (snapshots.get(i).exists()) actual.add(fromDocument(snapshots.get(i).getData()));
-                        else {
+                        if (snapshots.get(i).exists()) {
+                            try { actual.add(fromDocument(snapshots.get(i).getData())); }
+                            catch (RuntimeException malformed) {
+                                var snapshot = snapshots.get(i);
+                                log.warn("Repairing malformed catalog record {} ({})", snapshot.getId(), malformed.getClass().getSimpleName());
+                                // Preserve the exact original before repairing; never discard possibly accepted values.
+                                String version = snapshot.getUpdateTime().getSeconds() + "-" + snapshot.getUpdateTime().getNanos();
+                                transaction.set(refs.get(i).collection("_corrupt").document(version), snapshot.getData());
+                                transaction.set(refs.get(i), toDocument(chunk.get(i)));
+                                actual.add(chunk.get(i));
+                            }
+                        } else {
                             transaction.create(refs.get(i), toDocument(chunk.get(i)));
                             actual.add(chunk.get(i));
                         }
@@ -120,6 +130,7 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
             for (Throwable cause = e; cause != null; cause = cause.getCause()) {
                 if (cause instanceof com.google.api.gax.rpc.ApiException api
                     && api.getStatusCode().getCode() == com.google.api.gax.rpc.StatusCode.Code.FAILED_PRECONDITION) {
+                    log.warn("Catalog index query is not ready", e);
                     throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
                         "Catalog indexes are not ready; retry after index deployment", e);
                 }

@@ -210,12 +210,6 @@ mvn -f backend/pom.xml test
 mvn -f backend/pom.xml package
 ```
 
-## Credits
-
-Planet, Sun, and moon surface textures (`public/textures/`) are the solar-system
-maps by **James Hastings-Trew — [Planet Pixel Emporium](https://planetpixelemporium.com/planets.html)**,
-used with credit per the author's usage terms. See
-[`public/textures/CREDITS.md`](public/textures/CREDITS.md).
 ### Catalog rollback and retries
 
 After **any** rollback to an older writer, drain/stop that revision, rerun the
@@ -229,3 +223,10 @@ missing from the indexed query.
 Public catalog reads never schedule validation retries. Use the authenticated
 POST validation endpoint to request retries; reads must remain free of hidden
 JPL work. The durable-worker PR makes this an explicit queued operation.
+
+## Credits
+
+Planet, Sun, and moon surface textures (`public/textures/`) are the solar-system
+maps by **James Hastings-Trew — [Planet Pixel Emporium](https://planetpixelemporium.com/planets.html)**,
+used with credit per the author's usage terms. See
+[`public/textures/CREDITS.md`](public/textures/CREDITS.md).
