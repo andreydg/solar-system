@@ -62,7 +62,10 @@ public class SmallBodyTrajectoryService {
         var existing = loading.putIfAbsent(body, mine);
         if (existing != null) {
             try { return existing.join(); }
-            catch (java.util.concurrent.CompletionException ex) { throw (RuntimeException) ex.getCause(); }
+            catch (java.util.concurrent.CompletionException ex) {
+                if (ex.getCause() instanceof Error fatal) throw fatal;
+                throw (RuntimeException) ex.getCause();
+            }
         }
         try {
             // Recheck after winning ownership: another load may have just completed.
@@ -78,7 +81,11 @@ public class SmallBodyTrajectoryService {
             failures.put(body, new FailedLoad(Instant.now().plusSeconds(10), ex));
             mine.completeExceptionally(ex);
             throw ex;
+        } catch (Error fatal) {
+            mine.completeExceptionally(fatal);
+            throw fatal;
         } finally {
+            mine.completeExceptionally(new IllegalStateException("Trajectory load did not complete"));
             loading.remove(body, mine);
         }
     }

@@ -39,6 +39,7 @@ public class GlobalExceptionHandler {
         org.springframework.web.HttpMediaTypeNotAcceptableException.class})
     public ResponseEntity<Map<String, String>> handleMedia(Exception ex) {
         int status = ex instanceof org.springframework.web.HttpMediaTypeNotSupportedException ? 415 : 406;
+        if (status == 406) return ResponseEntity.status(406).build();
         return ResponseEntity.status(status).body(Map.of("message", status == 415 ? "Unsupported media type" : "Unacceptable response type"));
     }
 

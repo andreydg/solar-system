@@ -7,10 +7,34 @@ import dev.andreydg.solarsystem.config.TrajectoryCacheProperties;
 import java.util.Optional;
 import java.util.List;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.concurrent.*;
 import org.junit.jupiter.api.Test;
 
 class TrajectorySingleFlightTests {
+    @Test void fatalLoaderFailureReleasesAllWaiters() throws Exception {
+        var provider = mock(JplEphemerisProvider.class);
+        var files = mock(TrajectoryFileStore.class);
+        when(files.load(any())).thenReturn(Optional.empty());
+        var service = new SmallBodyTrajectoryService(provider, files, new TrajectoryCacheProperties("/unused", true));
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var fatal = new AssertionError("simulated fatal load");
+        when(provider.heliocentricTrajectory(eq(BodyId.CERES), any(), any(), any())).thenAnswer(call -> {
+            entered.countDown(); release.await(5, TimeUnit.SECONDS); throw fatal;
+        });
+        var ownerFailure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        var waiterFailure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        Thread owner = Thread.ofVirtual().start(() -> { try { service.getTrajectory(BodyId.CERES); } catch (Throwable t) { ownerFailure.set(t); } });
+        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+        Thread waiter = Thread.ofVirtual().start(() -> { try { service.getTrajectory(BodyId.CERES); } catch (Throwable t) { waiterFailure.set(t); } });
+        try { org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(2)).until(() -> waiter.getState() == Thread.State.WAITING); }
+        finally { release.countDown(); }
+        owner.join(Duration.ofSeconds(2)); waiter.join(Duration.ofSeconds(2));
+        assertThat(owner.isAlive()).isFalse(); assertThat(waiter.isAlive()).isFalse();
+        assertThat(ownerFailure.get()).isSameAs(fatal); assertThat(waiterFailure.get()).isSameAs(fatal);
+    }
+
     @Test void concurrentColdReadsShareOneDownloadAndFailuresHaveACooldown() throws Exception {
         var provider = mock(JplEphemerisProvider.class);
         var files = mock(TrajectoryFileStore.class);

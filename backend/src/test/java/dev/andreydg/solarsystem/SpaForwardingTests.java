@@ -27,6 +27,7 @@ import org.springframework.web.servlet.resource.ResourceHttpRequestHandler;
     }
 )
 @org.springframework.context.annotation.Import(OfflineEphemerisConfiguration.class)
+@org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
 class SpaForwardingTests {
 
     @Test
@@ -46,6 +47,32 @@ class SpaForwardingTests {
             .body("{bad json").retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(400);
         assertThat(client().get().uri("/api/events").retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(400);
     }
+
+    @Test
+    void realHttpMediaAndFormFailuresStayBounded(org.springframework.boot.test.system.CapturedOutput output) {
+        assertThat(context.getBeansOfType(org.springframework.web.filter.FormContentFilter.class)).isEmpty();
+        assertThat(org.springframework.core.annotation.AnnotatedElementUtils.findMergedAnnotation(
+            dev.andreydg.solarsystem.api.ApiGuardFilter.class, org.springframework.core.annotation.Order.class).value())
+            .isEqualTo(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
+        assertThat(client().post().uri("/api/events/generate").contentType(MediaType.TEXT_PLAIN)
+            .body("secret").retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(415);
+        var invalid = client().post().uri("/api/events/generate").contentType(MediaType.APPLICATION_JSON)
+            .body("{secret").retrieve().toEntity(String.class);
+        assertThat(invalid.getStatusCode().value()).isEqualTo(400);
+        assertThat(invalid.getBody()).contains("Invalid JSON request body").doesNotContain("secret", "GenerateEventsRequest");
+        var unacceptable = client().get().uri("/api/health").accept(MediaType.IMAGE_PNG).retrieve().toEntity(String.class);
+        assertThat(unacceptable.getStatusCode().value()).isEqualTo(406);
+        assertThat(unacceptable.getBody()).isNullOrEmpty();
+        assertThat(output.getAll()).doesNotContain("Failure in @ExceptionHandler");
+        for (var method : new org.springframework.http.HttpMethod[] {
+                org.springframework.http.HttpMethod.PUT, org.springframework.http.HttpMethod.PATCH, org.springframework.http.HttpMethod.DELETE }) {
+            assertThat(client().method(method).uri("/api/events/generate")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED).body("x=" + "z".repeat(5000))
+                .retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(413);
+        }
+    }
+
+    @Autowired private org.springframework.context.ApplicationContext context;
 
     @LocalServerPort
     private int port;

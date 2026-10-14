@@ -22,11 +22,16 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 /** Bounded per-client quotas plus independent instance concurrency backstops. */
 @Component
+@org.springframework.core.annotation.Order(org.springframework.core.Ordered.HIGHEST_PRECEDENCE)
 public class ApiGuardFilter extends OncePerRequestFilter {
     private final String adminToken;
     private final Semaphore work = new Semaphore(2);
     private final Semaphore reads = new Semaphore(32);
     private final Semaphore jpl = new Semaphore(8);
+    private final Semaphore trajectories = new Semaphore(16);
+    private static final tools.jackson.databind.json.JsonMapper JSON = tools.jackson.databind.json.JsonMapper.builder().build();
+    private final int[] overflow = new int[3];
+    private final int[] malformed = new int[3];
     private final Clock clock;
     private final int trustedProxyHops;
     private final Map<String, int[]> clients = new HashMap<>();
@@ -35,9 +40,9 @@ public class ApiGuardFilter extends OncePerRequestFilter {
 
     @org.springframework.beans.factory.annotation.Autowired
     public ApiGuardFilter(@Value("${solar-system.admin-token:}") String adminToken,
-        @Value("${solar-system.trusted-proxy-hops:-1}") int trustedProxyHops) {
-        this(adminToken, Clock.systemUTC(), trustedProxyHops < 0
-            ? (System.getenv("K_SERVICE") == null ? 0 : 1) : trustedProxyHops);
+        @Value("${solar-system.trusted-proxy-hops:-1}") int trustedProxyHops,
+        @Value("${K_SERVICE:}") String cloudRunService) {
+        this(adminToken, Clock.systemUTC(), proxyHops(trustedProxyHops, cloudRunService));
     }
 
     ApiGuardFilter(String adminToken) { this(adminToken, Clock.systemUTC(), 0); }
@@ -48,6 +53,13 @@ public class ApiGuardFilter extends OncePerRequestFilter {
         this.clock = clock;
         if (trustedProxyHops < 0 || trustedProxyHops > 10) throw new IllegalArgumentException("Invalid proxy hop count");
         this.trustedProxyHops = trustedProxyHops;
+    }
+
+    static int proxyHops(int configured, String cloudRunService) {
+        if (configured >= 0) return configured;
+        if (!cloudRunService.isBlank()) throw new IllegalArgumentException(
+            "Set SOLAR_SYSTEM_TRUSTED_PROXY_HOPS for the deployed ingress (1 for direct Cloud Run)");
+        return 0;
     }
 
     @Override
@@ -82,9 +94,10 @@ public class ApiGuardFilter extends OncePerRequestFilter {
             reject(response, 413, "Request body is too large");
             return;
         }
-        if (java.util.Set.of("POST", "PUT", "PATCH").contains(request.getMethod())) {
+        byte[] body = new byte[0];
+        if (java.util.Set.of("POST", "PUT", "PATCH", "DELETE").contains(request.getMethod())) {
             // Read at most limit+1, including chunked/HTTP2 bodies with no Content-Length.
-            byte[] body = request.getInputStream().readNBytes(4097);
+            body = request.getInputStream().readNBytes(4097);
             if (body.length > 4096) {
                 reject(response, 413, "Request body is too large");
                 return;
@@ -97,8 +110,10 @@ public class ApiGuardFilter extends OncePerRequestFilter {
             return;
         }
         boolean expensive = path.equals("/api/events/generate");
-        boolean jplBound = administrative || path.startsWith("/api/ephemeris/position");
-        Semaphore permits = expensive ? work : jplBound ? jpl : reads;
+        boolean jplBound = administrative || path.startsWith("/api/ephemeris/position")
+            || expensive && smallBodyGeneration(body);
+        Semaphore permits = jplBound ? jpl : expensive ? work
+            : path.equals("/api/ephemeris/trajectory") ? trajectories : reads;
         if (!permits.tryAcquire()) {
             response.setHeader("Retry-After", "1");
             reject(response, 429, "Work capacity exceeded; retry later");
@@ -116,18 +131,42 @@ public class ApiGuardFilter extends OncePerRequestFilter {
         }
     }
 
-    private String clientKey(HttpServletRequest request) {
-        if (trustedProxyHops > 0) {
-            String forwarded = request.getHeader("X-Forwarded-For");
-            if (forwarded != null && forwarded.length() < 2048) {
-                String[] hops = forwarded.split(",", -1);
-                if (hops.length >= trustedProxyHops) {
-                    String candidate = hops[hops.length - trustedProxyHops].trim();
-                    if (InetAddresses.isInetAddress(candidate)) return InetAddresses.toAddrString(InetAddresses.forString(candidate));
-                }
+    private static boolean smallBodyGeneration(byte[] body) {
+        try {
+            var json = JSON.readTree(body);
+            for (String field : new String[] {"bodyA", "bodyB"}) {
+                if (json != null && json.has(field) && java.util.Set.of("ceres", "vesta", "encke", "halley")
+                    .contains(json.get(field).asText())) return true;
             }
+        } catch (RuntimeException ignored) { /* MVC reports malformed JSON; never perform work here. */ }
+        return false;
+    }
+
+    private String clientKey(HttpServletRequest request) {
+        if (trustedProxyHops == 0) return addressKey(request.getRemoteAddr());
+        var values = request.getHeaders("X-Forwarded-For");
+        var forwarded = new StringBuilder();
+        while (values.hasMoreElements()) {
+            String value = values.nextElement();
+            if (forwarded.length() + value.length() + 1 > 2048) return "!malformed";
+            if (!forwarded.isEmpty()) forwarded.append(',');
+            forwarded.append(value);
         }
-        return request.getRemoteAddr();
+        String[] hops = forwarded.toString().split(",", -1);
+        if (hops.length < trustedProxyHops) return "!malformed";
+        return addressKey(hops[hops.length - trustedProxyHops].trim());
+    }
+
+    private static String addressKey(String value) {
+        if (!InetAddresses.isInetAddress(value)) return "!malformed";
+        var address = InetAddresses.forString(value);
+        byte[] bytes = address.getAddress();
+        if (bytes.length == 16) {
+            java.util.Arrays.fill(bytes, 8, 16, (byte) 0);
+            try { address = java.net.InetAddress.getByAddress(bytes); }
+            catch (java.net.UnknownHostException impossible) { throw new AssertionError(impossible); }
+        }
+        return InetAddresses.toAddrString(address);
     }
 
     private synchronized boolean admit(String client, int pool) {
@@ -136,17 +175,21 @@ public class ApiGuardFilter extends OncePerRequestFilter {
             window = current;
             requests = 0;
             clients.clear();
+            java.util.Arrays.fill(overflow, 0);
+            java.util.Arrays.fill(malformed, 0);
         }
-        int[] counts = clients.get(client);
+        int[] counts = client.equals("!malformed") ? malformed : clients.get(client);
         // Never evict existing clients (which would let a client reset its quota).
         if (counts == null && clients.size() < 4096) {
             counts = new int[3];
             clients.put(client, counts);
         }
+        if (counts == null) counts = overflow;
         int limit = pool == 0 ? 60 : pool == 1 ? 120 : 600;
-        if (requests >= 6000 || counts != null && counts[pool] >= limit) return false;
+        if (counts == malformed || counts == overflow) limit /= 10;
+        if (requests >= 6000 || counts[pool] >= limit) return false;
         requests++;
-        if (counts != null) counts[pool]++;
+        counts[pool]++;
         return true;
     }
 

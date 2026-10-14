@@ -72,6 +72,10 @@ Do not set `FIRESTORE_EMULATOR_HOST` in Cloud Run; the Firestore client will use
 the deployed service account against real Firestore. The GCP project ID is resolved
 implicitly from the Cloud Run runtime (same as durak-game).
 
+Required Cloud Run environment variable:
+
+- `SOLAR_SYSTEM_TRUSTED_PROXY_HOPS` — explicitly set the authenticated ingress suffix: `1` for direct Cloud Run. An external load balancer requires its actual trusted-hop count and ingress restriction against bypass. Startup fails on Cloud Run if this setting is omitted; topology is never guessed.
+
 Optional Cloud Run environment variables:
 
 - `FIRESTORE_DATABASE_ID` — defaults to `(default)`. Set this if you use a named Firestore database.
@@ -122,16 +126,19 @@ preserving the original computed values for traceability.
 
 Generation/query windows must be increasing and at most 31 years; dates are bounded
 to 1600–3000. Generation has a cooperative 30-second calculation budget. Expensive
-generation is limited to two concurrent requests, independently of 32 cached-read
-and eight JPL-bound HTTP slots. Only admitted requests consume the per-client
+planet-only generation is limited to two concurrent requests, independently of 32 catalog-read,
+16 trajectory, and eight JPL-bound slots (including small-body generation). Only admitted requests consume the per-client
 minute quotas (60 generation / 120 JPL-bound / 600 reads); a high 6,000/minute
 instance backstop and a bounded 4,096-client table protect memory. Deploy edge
 quotas and cap Cloud Run instances for a deployment-wide cost budget. Size Cloud
 Run concurrency to leave capacity for static files and health checks (at least 64).
 
 Direct local deployments ignore forwarded headers. Direct Cloud Run ingress
-(`K_SERVICE` present) trusts the last appended X-Forwarded-For address; override
-`solar-system.trusted-proxy-hops` for other topologies (0 disables header trust).
+(`K_SERVICE` present) requires an explicit `SOLAR_SYSTEM_TRUSTED_PROXY_HOPS` setting:
+1 for direct ingress; the verified trusted suffix length for other topologies.
+Omitting it fails startup instead of silently collapsing visitors into one proxy quota.
+IPv6 addresses share /64 quotas; malformed chains and a full client table use tight
+shared buckets rather than unbounded admission. Multiple forwarded-header lines are combined.
 Never enable it on directly reachable untrusted ingress. Behind an external Google
 load balancer, verify the appended chain: its last hop is the load balancer, not
 the visitor ([Google's header documentation](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).

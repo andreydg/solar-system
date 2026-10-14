@@ -107,6 +107,82 @@ class ApiGuardFilterTests {
             for (var future : futures) future.get();
         }
     }
+    @Test void ipv6RotationOverflowAndMalformedChainsStayBounded() throws Exception {
+        var filter = new ApiGuardFilter("", Clock.fixed(Instant.EPOCH, ZoneOffset.UTC), 1);
+        for (int i = 1; i <= 61; i++) assertThat(status(filter, "2001:db8:1:2::" + Integer.toHexString(i))).isEqualTo(i <= 60 ? 200 : 429);
+        assertThat(status(filter, "2001:db8:1:3::1")).isEqualTo(200);
+        var full = new ApiGuardFilter("", Clock.fixed(Instant.EPOCH, ZoneOffset.UTC), 1);
+        assertThat(status(full, "198.51.100.1")).isEqualTo(200);
+        for (int i = 0; i < 4095; i++) assertThat(status(full, "10.16." + (i / 256) + "." + (i % 256))).isEqualTo(200);
+        for (int i = 0; i < 10; i++) assertThat(status(full, "192.0.2." + i)).isEqualTo(i < 6 ? 200 : 429);
+        assertThat(status(full, "198.51.100.1")).isEqualTo(200);
+        for (int i = 0; i < 7; i++) assertThat(status(filter, "x".repeat(2100))).isEqualTo(i < 6 ? 200 : 429);
+        assertThat(status(filter, "203.0.113.1")).isEqualTo(200);
+    }
+    @Test void multiLineProxyHeadersAndExplicitCloudRunTopologyAreCovered() throws Exception {
+        assertThatThrownBy(() -> new ApiGuardFilter("", -1, "deployed-service")).hasMessageContaining("TRUSTED_PROXY_HOPS");
+        assertThat(ApiGuardFilter.proxyHops(-1, "")).isZero();
+        var direct = new ApiGuardFilter("", 1, "deployed-service");
+        for (int i = 0; i < 61; i++) assertThat(status(direct, "203.0.113.1")).isEqualTo(i < 60 ? 200 : 429);
+        assertThat(status(direct, "203.0.113.2")).isEqualTo(200);
+        var loadBalancer = new ApiGuardFilter("", Clock.fixed(Instant.EPOCH, ZoneOffset.UTC), 2);
+        for (int i = 0; i < 61; i++) {
+            var request = new MockHttpServletRequest("POST", "/api/events/generate");
+            request.addHeader("X-Forwarded-For", "192.0.2." + i);
+            request.addHeader("X-Forwarded-For", "203.0.113.1, 198.51.100.1");
+            var response = new MockHttpServletResponse();
+            loadBalancer.doFilter(request, response, (req, res) -> {});
+            assertThat(response.getStatus()).isEqualTo(i < 60 ? 200 : 429);
+        }
+    }
+    @Test void capacityRejectionsNeverSpendQuota() throws Exception {
+        var filter = new ApiGuardFilter("", Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+        hold(filter, "/api/events/generate", "", 2, () -> {
+            for (int i = 0; i < 65; i++) assertThat(requestStatus(filter, "/api/events/generate", "")).isEqualTo(429);
+        });
+        for (int i = 0; i < 59; i++) assertThat(requestStatus(filter, "/api/events/generate", "")).isEqualTo(i < 58 ? 200 : 429);
+    }
+    @Test void coldTrajectoriesPositionsAndSmallBodyGenerationCannotBlockCatalogOrPlanetWork() throws Exception {
+        var filter = new ApiGuardFilter("");
+        hold(filter, "/api/ephemeris/trajectory", "", 16, () -> {
+            assertThat(requestStatus(filter, "/api/ephemeris/trajectory", "")).isEqualTo(429);
+            assertThat(requestStatus(filter, "/api/events/validated", "")).isEqualTo(200);
+        });
+        hold(filter, "/api/events/generate", "{\"bodyA\":\"earth\",\"bodyB\":\"ceres\"}", 2, () -> {
+            assertThat(requestStatus(filter, "/api/events/generate", "")).isEqualTo(200);
+        });
+        hold(filter, "/api/ephemeris/positions", "", 8, () -> {
+            assertThat(requestStatus(filter, "/api/ephemeris/positions", "")).isEqualTo(429);
+            assertThat(requestStatus(filter, "/api/events/validated", "")).isEqualTo(200);
+            assertThat(requestStatus(filter, "/api/events/generate", "")).isEqualTo(200);
+        });
+    }
+    private static int status(ApiGuardFilter filter, String forwarded) throws Exception {
+        var request = new MockHttpServletRequest("POST", "/api/events/generate");
+        request.addHeader("X-Forwarded-For", forwarded);
+        var response = new MockHttpServletResponse();
+        filter.doFilter(request, response, (req, res) -> {});
+        return response.getStatus();
+    }
+    private static int requestStatus(ApiGuardFilter filter, String path, String body) throws Exception {
+        var request = new MockHttpServletRequest(iMethod(path), path);
+        request.setContent(body.getBytes());
+        var response = new MockHttpServletResponse();
+        filter.doFilter(request, response, (req, res) -> {});
+        return response.getStatus();
+    }
+    private interface Checked { void run() throws Exception; }
+    private static void hold(ApiGuardFilter filter, String path, String body, int count, Checked inside) throws Exception {
+        if (count == 0) { inside.run(); return; }
+        var request = new MockHttpServletRequest(iMethod(path), path);
+        request.setContent(body.getBytes());
+        var response = new MockHttpServletResponse();
+        filter.doFilter(request, response, (req, res) -> {
+            try { hold(filter, path, body, count - 1, inside); }
+            catch (Exception failure) { throw new RuntimeException(failure); }
+        });
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
     private static String iMethod(String path) { return path.endsWith("generate") ? "POST" : "GET"; }
 
     @Test void concurrentWorkIsRejectedRatherThanQueuedAndPermitsAreReleased() throws Exception {
