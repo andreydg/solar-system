@@ -250,6 +250,13 @@ mvn -f backend/pom.xml package
 
 ## Scientific provenance and catalog version 2
 
+Browser regression tests run against the production jar with the real Vite build:
+`npx playwright install chromium && npm run test:e2e` (Java and Maven required;
+set `MAVEN=/absolute/path/to/mvn` if Maven is not on PATH). API responses are
+explicit offline fixtures; UI, assets, HTTP static serving, and browser timezone
+behavior are real. No live Horizons or Firestore access is needed. The test server
+uses port 18080 and shuts down automatically.
+
 Candidates are approximate, not automatically JPL-validated. Planet candidates use
 JPL's [approximate Keplerian elements](https://ssd.jpl.nasa.gov/planets/approx_pos.html)
 (Table 1 in 1800–2050; Table 2 and outer-planet corrections outside that interval).
@@ -303,6 +310,20 @@ Requests and retrieval provenance are in `backend/src/test/resources/jpl/cases/p
 The capture script prints raw numeric samples; normal tests use only the checked-in
 recordings and real application geometry/photometry, not network calls.
 
+### Date editing and browser recovery
+
+The UTC editor keeps incomplete keyboard input as a draft. Valid dates commit;
+leaving an incomplete field restores the last committed value. An explicit date
+jump (including Today) pauses playback and clears the selected event so the
+visible timestamp and highlighted event cannot silently disagree; the UI explains
+this next to the input. Network timeouts are 45 seconds per request and 90 seconds
+per search, longer than the server's 30-second generation calculation budget.
+Only actual fetch failures / server outages enable approximate browser fallback;
+programming errors and cancellations do not. Unsupported WebGL shows an actionable
+fallback, and Retry remounts only the scene, preserving the current view controls.
+
+If the lazy JavaScript chunk fails again on Retry (for example after deployment),
+the browser reloads once to obtain the current asset manifest.
 
 ## Credits
 

@@ -32,7 +32,7 @@ it("follows empty catalog cursors instead of generating duplicate events", async
   expect((await findNextEvent("opposition", "earth", "mars", new Date("2990-01-01Z")))?.id).toBe("valid");
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(fetcher.mock.calls[1][0]).toContain("cursor=next-page");
-  expect(fetcher.mock.calls.every(call => !call[1])).toBe(true);
+  expect(fetcher.mock.calls.every(call => !call[1]?.method || call[1].method === "GET")).toBe(true);
 });
 
 it("falls back to bounded generation after twenty skipped catalog pages", async () => {

@@ -1,5 +1,6 @@
 import type { CatalogEventType } from "../domain/eventTypes";
 import type { BodyId } from "../domain/solarSystem";
+import { fetchJson, requestScope } from "./http";
 import { addYears } from "../lib/timeUtils";
 
 export type { CatalogEventType };
@@ -58,9 +59,7 @@ export type CatalogOptions = {
 };
 
 export async function getCatalogOptions(): Promise<CatalogOptions> {
-  const response = await fetch("/api/catalog/options");
-  await assertOk(response);
-  return (await response.json()) as CatalogOptions;
+  return (await fetchJson<CatalogOptions>("/api/catalog/options")).data;
 }
 
 export type ValidatedEventQuery = {
@@ -75,7 +74,7 @@ export type ValidatedEventQuery = {
 
 export type CatalogEventPage = { events: CatalogEventResult[]; nextCursor: string | null };
 
-export async function getValidatedEvents(query: ValidatedEventQuery = {}): Promise<CatalogEventPage> {
+export async function getValidatedEvents(query: ValidatedEventQuery = {}, signal?: AbortSignal): Promise<CatalogEventPage> {
   const params = new URLSearchParams();
   if (query.type) {
     params.set("type", query.type);
@@ -93,10 +92,8 @@ export async function getValidatedEvents(query: ValidatedEventQuery = {}): Promi
   params.set("limit", "50");
 
   const queryString = params.toString();
-  const response = await fetch(`/api/events/validated${queryString ? `?${queryString}` : ""}`);
-  await assertOk(response);
-  const events = (await response.json()) as ApiEvent[];
-  return { events: events.map(toCatalogEventResult), nextCursor: response.headers.get("X-Next-Cursor") };
+  const { data: events, headers } = await fetchJson<ApiEvent[]>(`/api/events/validated${queryString ? `?${queryString}` : ""}`, { signal });
+  return { events: events.map(toCatalogEventResult), nextCursor: headers.get("X-Next-Cursor") };
 }
 
 export const SEARCH_HORIZON_YEARS = 1000;
@@ -113,19 +110,23 @@ export async function findNextEvent(
   bodyA: BodyId,
   bodyB: BodyId,
   after: Date,
+  signal?: AbortSignal,
 ): Promise<CatalogEventResult | null> {
+  const scope = requestScope(signal, 90_000);
+  signal = scope.signal;
+  try {
   const absoluteEnd = minDate(addYears(after, SEARCH_HORIZON_YEARS), CATALOG_MAX_TIME);
   let windowStart = maxDate(after, CATALOG_MIN_TIME);
 
   while (windowStart < absoluteEnd) {
     const windowEnd = minDate(addYears(windowStart, GENERATE_WINDOW_YEARS), absoluteEnd);
-    const queryResult = await queryEvents(type, bodyA, bodyB, windowStart, windowEnd, false);
+    const queryResult = await queryEvents(type, bodyA, bodyB, windowStart, windowEnd, false, signal);
 
     if (queryResult.length > 0) {
       return toCatalogEventResult(queryResult[0]);
     }
 
-    const generated = (await generateEvents(type, bodyA, bodyB, windowStart, windowEnd))
+    const generated = (await generateEvents(type, bodyA, bodyB, windowStart, windowEnd, signal))
       .filter(event => new Date(event.timeUtc) > after && new Date(event.timeUtc) >= windowStart && new Date(event.timeUtc) <= windowEnd)
       .sort((a, b) => Date.parse(a.timeUtc) - Date.parse(b.timeUtc));
     if (generated.length > 0) {
@@ -136,6 +137,7 @@ export async function findNextEvent(
   }
 
   return null;
+  } finally { scope.dispose(); }
 }
 
 export async function findPreviousEvent(
@@ -143,20 +145,24 @@ export async function findPreviousEvent(
   bodyA: BodyId,
   bodyB: BodyId,
   before: Date,
+  signal?: AbortSignal,
 ): Promise<CatalogEventResult | null> {
+  const scope = requestScope(signal, 90_000);
+  signal = scope.signal;
+  try {
   const absoluteStart = maxDate(addYears(before, -SEARCH_HORIZON_YEARS), CATALOG_MIN_TIME);
   let windowEnd = minDate(before, CATALOG_MAX_TIME);
 
   while (windowEnd > absoluteStart) {
     const windowStart = maxDate(addYears(windowEnd, -GENERATE_WINDOW_YEARS), absoluteStart);
-    const queryResult = await queryEvents(type, bodyA, bodyB, windowStart, windowEnd, true);
+    const queryResult = await queryEvents(type, bodyA, bodyB, windowStart, windowEnd, true, signal);
 
     if (queryResult.length > 0) {
-      // Results are ordered ascending by time; the last one is the latest before `before`.
+      // The server returns the single nearest result in descending order.
       return toCatalogEventResult(queryResult[queryResult.length - 1]);
     }
 
-    const generated = (await generateEvents(type, bodyA, bodyB, windowStart, windowEnd))
+    const generated = (await generateEvents(type, bodyA, bodyB, windowStart, windowEnd, signal))
       .filter(event => new Date(event.timeUtc) < before && new Date(event.timeUtc) >= windowStart && new Date(event.timeUtc) <= windowEnd)
       .sort((a, b) => Date.parse(a.timeUtc) - Date.parse(b.timeUtc));
     if (generated.length > 0) {
@@ -167,6 +173,7 @@ export async function findPreviousEvent(
   }
 
   return null;
+  } finally { scope.dispose(); }
 }
 
 async function queryEvents(
@@ -176,6 +183,7 @@ async function queryEvents(
   start: Date,
   end: Date,
   descending: boolean,
+  signal?: AbortSignal,
 ) {
   const params = new URLSearchParams({
     type,
@@ -189,11 +197,9 @@ async function queryEvents(
 
   // A filtered/corrupt document can leave an empty page with more data.
   for (let page = 0; page < 20; page++) {
-    const response = await fetch(`/api/events?${params.toString()}`);
-    await assertOk(response);
-    const events = (await response.json()) as ApiEvent[];
+    const { data: events, headers } = await fetchJson<ApiEvent[]>(`/api/events?${params.toString()}`, { signal });
     if (events.length) return events;
-    const cursor = response.headers.get("X-Next-Cursor");
+    const cursor = headers.get("X-Next-Cursor");
     if (!cursor) return [];
     params.set("cursor", cursor);
   }
@@ -208,8 +214,9 @@ async function generateEvents(
   bodyB: BodyId,
   start: Date,
   end: Date,
+  signal?: AbortSignal,
 ) {
-  const response = await fetch("/api/events/generate", {
+  const { data } = await fetchJson<ApiEvent[]>("/api/events/generate", {
     body: JSON.stringify({
       type,
       bodyA,
@@ -221,10 +228,10 @@ async function generateEvents(
       "Content-Type": "application/json",
     },
     method: "POST",
+    signal,
   });
 
-  await assertOk(response);
-  return (await response.json()) as ApiEvent[];
+  return data;
 }
 
 function toCatalogEventResult(event: ApiEvent): CatalogEventResult {
@@ -262,19 +269,4 @@ function minDate(left: Date, right: Date) {
 
 function maxDate(left: Date, right: Date) {
   return left > right ? left : right;
-}
-
-async function assertOk(response: Response) {
-  if (!response.ok) {
-    let msg = `Event catalog request failed with ${response.status}`;
-    try {
-      const body = await response.json() as Record<string, unknown>;
-      if (typeof body.message === "string") {
-        msg = body.message;
-      }
-    } catch {
-      // ignore
-    }
-    throw new Error(msg);
-  }
 }

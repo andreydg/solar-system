@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BODIES, type BodyId } from "../domain/solarSystem";
 import {
   EVENT_TYPES,
@@ -16,6 +16,8 @@ type SortOrder = "asc" | "desc";
 const ALL_FILTER = "all";
 
 export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverlayProps) {
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => request.current?.abort(), []);
   const [events, setEvents] = useState<CatalogEventResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -50,20 +52,25 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
       descending: sortOrder === "desc",
     };
     if (!more && (!from || !to || from > to)) { setError("Choose an increasing date range."); return; }
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
     setLoading(true);
     setError(null);
     if (!more) { setEvents([]); setNextCursor(null); setActiveQuery(query); }
-    void getValidatedEvents(query)
+    void getValidatedEvents(query, controller.signal)
       .then((results) => {
+        if (controller.signal.aborted) return;
         setEvents(previous => more ? [...previous, ...results.events] : results.events);
         setNextCursor(results.nextCursor);
         setHasQueried(true);
       })
       .catch((fetchError: unknown) => {
+        if (controller.signal.aborted) return;
         setError(fetchError instanceof Error ? fetchError.message : "Failed to query validated events.");
       })
       .finally(() => {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
   };
 

@@ -11,3 +11,5 @@ data/trajectories/*.json
 *.local
 *.tsbuildinfo
 .claude/
+playwright-report/
+test-results/
