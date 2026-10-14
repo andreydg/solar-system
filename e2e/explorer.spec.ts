@@ -312,3 +312,33 @@ test("successful assets are cacheable, missing assets are not, and JSON is compr
   expect(trajectory.headers()["content-encoding"]).toBe("gzip");
   expect((await trajectory.json()).length).toBeGreaterThan(10000);
 });
+test("the production JavaScript MIME type is gzip-compressed", async ({ request }) => {
+  const html = await (await request.get("/")).text();
+  const asset = html.match(/src="([^"]+\.js)"/)![1];
+  const response = await request.get(asset, { headers: { "Accept-Encoding": "gzip" } });
+  expect(response.ok()).toBeTruthy();
+  expect(response.headers()["content-type"]).toContain("text/javascript");
+  expect(response.headers()["content-encoding"]).toBe("gzip");
+});
+
+test("manual trajectory retry clears the stale error while its new request is pending", async ({ page }) => {
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  let requests = 0;
+  await page.route("**/api/ephemeris/trajectory?**", async route => {
+    if (++requests === 1) return route.fulfill({ status: 400, json: { message: "unavailable" } });
+    await pending;
+    await route.fulfill({ json: [
+      { timeUtc: "2026-01-01Z", x: 1, y: 0, z: 0 }, { timeUtc: "2027-01-01Z", x: 2, y: 0, z: 0 },
+    ] });
+  });
+  await page.goto("/");
+  const body = page.getByRole("checkbox", { name: "Halley", exact: true });
+  await body.check();
+  await expect(page.getByText(/Halley's path could not load/)).toBeVisible();
+  await body.uncheck();
+  await body.check();
+  await expect.poll(() => requests).toBe(2);
+  await expect(page.getByText(/Halley's path could not load/)).toHaveCount(0);
+  release();
+});

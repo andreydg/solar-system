@@ -351,11 +351,11 @@ another body does not cancel already-wanted downloads. Transient failures get at
 most two automatic retries, respecting Retry-After; hiding a body or unmounting
 cancels both the request and its backoff. Persistent errors remain visible beside
 event status. Dates outside a loaded snapshot explicitly show a repeated-orbit
-approximation warning. Bundled snapshots must match the target, Sun-centred
-geometric ecliptic frame, AU-D units and UT/Gregorian time metadata before use.
+approximation warning. All four bundled snapshots are validated and cached during startup. They must match the target, Sun-centred
+geometric ecliptic frame, AU-D units and UT/Gregorian time metadata before serving traffic.
 
-The visible simulation follows requestAnimationFrame cadence; it is not limited
-to 10 fps. Hidden tabs pause without catch-up, stalls are capped at 250 ms, and
+The scene reads a frame-rate clock ref; bodies, comet tails, labels, event lines and
+camera-follow move every frame. React controls publish at most ten updates/second. Hidden tabs pause without catch-up, stalls are capped at 250 ms, and
 changing the speed does not restart the clock. Long-lived asset cache headers are
 set only after successful resource resolution; missing assets remain no-store.
 

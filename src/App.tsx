@@ -22,7 +22,6 @@ const INITIAL_DATE = new Date();
 const DEFAULT_VISIBLE_BODIES = BODIES.filter((body) => !isSmallBody(body.id)).map((body) => body.id);
 
 export default function App() {
-  const [currentTime, setCurrentTime] = useState(INITIAL_DATE);
   const [isPlaying, setIsPlaying] = useState(() => !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [speedDaysPerSecond, setSpeedDaysPerSecond] = useState(10);
   const [visibleBodies, setVisibleBodies] = useState<BodyId[]>(DEFAULT_VISIBLE_BODIES);
@@ -43,7 +42,8 @@ export default function App() {
     searchController.current?.abort();
     setIsSearching(false);
   };
-  useSimulationClock(isPlaying, speedDaysPerSecond, setCurrentTime);
+  const { currentTime, setCurrentTime, timeRef, pauseClock } = useSimulationClock(INITIAL_DATE, isPlaying, speedDaysPerSecond);
+  const pausePlayback = () => { pauseClock(); setIsPlaying(false); };
 
   const eventPairIsValid = useMemo(
     () => isValidEventPair(eventType, eventBodyA, eventBodyB),
@@ -248,7 +248,7 @@ export default function App() {
     } finally {
       if (!controller.signal.aborted) {
         setIsSearching(false);
-        setIsPlaying(false);
+        pausePlayback();
       }
     }
   };
@@ -267,6 +267,7 @@ export default function App() {
     <main className="app-shell">
       <section className="hero-panel" aria-label="Solar system simulation">
           <SceneBoundary
+            timeRef={timeRef}
             currentTime={currentTime}
             focusedBody={focusedBody}
             highlightedBodies={highlightedBodies}
@@ -301,11 +302,11 @@ export default function App() {
         locksEarthAsBodyA={locksEarthAsBodyA(eventType)}
         speedDaysPerSecond={speedDaysPerSecond}
         visibleBodies={visibleBodies}
-        onDateChange={(time) => { cancelSearch(); setEventResult(null); setEventStatus(null); setCurrentTime(time); setIsPlaying(false); }}
+        onDateChange={(time) => { cancelSearch(); setEventResult(null); setEventStatus(null); pausePlayback(); setCurrentTime(time); }}
         onEventBodyAChange={handleEventBodyAChange}
         onEventBodyBChange={handleEventBodyBChange}
         onEventTypeChange={handleEventTypeChange}
-        onPlayToggle={() => setIsPlaying((playing) => !playing)}
+        onPlayToggle={() => { if (isPlaying) pausePlayback(); else setIsPlaying(true); }}
         onNextEvent={handleNextEvent}
         onPrevEvent={handlePreviousEvent}
         onSpeedChange={setSpeedDaysPerSecond}

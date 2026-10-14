@@ -98,6 +98,70 @@ class TrajectoryReliabilityTests {
         verify(client, times(1)).vector(BodyId.CERES, Instant.EPOCH);
     }
 
+    @Test void bundledSnapshotsAreValidatedDuringBeanConstructionAndReadOnlyOnce() {
+        var reads = new java.util.EnumMap<BodyId, Integer>(BodyId.class);
+        var properties = new TrajectoryCacheProperties(temporary.toString(), false);
+        var store = new TrajectoryFileStore(properties, JsonMapper.builder().build(), body -> {
+            reads.merge(body, 1, Integer::sum);
+            return TrajectoryFileStore.readBundled(body);
+        });
+        for (var body : List.of(BodyId.CERES, BodyId.VESTA, BodyId.ENCKE, BodyId.HALLEY)) {
+            assertThat(reads.get(body)).isEqualTo(1);
+            assertThat(store.loadBundled(body)).isSameAs(store.loadBundled(body));
+            assertThatThrownBy(() -> new TrajectoryFileStore(properties, JsonMapper.builder().build(),
+                id -> TrajectoryFileStore.readBundled(id).replace(id == body ? "AU-D" : "__absent__", "KM-S")))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("metadata");
+        }
+        assertThat(reads.values()).containsOnly(1);
+    }
+
+    @Test void trajectoryMissDoesNotLockOutCachedHitsOrAnotherBody() throws Exception {
+        var provider = mock(JplEphemerisProvider.class);
+        var files = mock(TrajectoryFileStore.class);
+        when(files.load(any())).thenReturn(java.util.Optional.empty());
+        var samples = List.of(
+            new JplEphemerisProvider.TrajectorySample(Instant.EPOCH, new Vector3Au(1, 0, 0)),
+            new JplEphemerisProvider.TrajectorySample(Instant.EPOCH.plusSeconds(100), new Vector3Au(2, 0, 0)));
+        when(provider.heliocentricTrajectory(any(), any(), any(), any())).thenReturn(samples);
+        var service = new SmallBodyTrajectoryService(provider, files, new TrajectoryCacheProperties(temporary.toString(), true));
+        service.getTrajectory(BodyId.HALLEY);
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        when(provider.heliocentricTrajectory(eq(BodyId.CERES), any(), any(), any())).thenAnswer(call -> {
+            entered.countDown(); release.await(5, java.util.concurrent.TimeUnit.SECONDS); return samples;
+        });
+        try (var pool = Executors.newFixedThreadPool(3)) {
+            var first = pool.submit(() -> service.getTrajectory(BodyId.CERES));
+            try {
+                assertThat(entered.await(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                assertThat(pool.submit(() -> service.getTrajectory(BodyId.HALLEY)).get(1, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(samples);
+                assertThat(pool.submit(() -> service.getTrajectory(BodyId.VESTA)).get(1, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(samples);
+            } finally { release.countDown(); }
+            assertThat(first.get()).isEqualTo(samples);
+        }
+    }
+
+    @Test void fatalPointOwnerFailureDoesNotStrandWaiters() throws Exception {
+        var client = mock(JplHorizonsClient.class);
+        var provider = new JplEphemerisProvider(client);
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var fatal = new AssertionError("simulated fatal load");
+        when(client.vector(BodyId.CERES, Instant.EPOCH)).thenAnswer(call -> {
+            entered.countDown(); release.await(5, java.util.concurrent.TimeUnit.SECONDS); throw fatal;
+        });
+        var ownerFailure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        var waiterFailure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        Thread owner = Thread.ofVirtual().start(() -> { try { provider.heliocentricPosition(BodyId.CERES, Instant.EPOCH); } catch (Throwable t) { ownerFailure.set(t); } });
+        assertThat(entered.await(2, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        Thread waiter = Thread.ofVirtual().start(() -> { try { provider.heliocentricPosition(BodyId.CERES, Instant.EPOCH); } catch (Throwable t) { waiterFailure.set(t); } });
+        try { org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(2)).until(() -> waiter.getState() == Thread.State.WAITING); }
+        finally { release.countDown(); }
+        owner.join(java.time.Duration.ofSeconds(2)); waiter.join(java.time.Duration.ofSeconds(2));
+        assertThat(owner.isAlive()).isFalse(); assertThat(waiter.isAlive()).isFalse();
+        assertThat(ownerFailure.get()).isSameAs(fatal); assertThat(waiterFailure.get()).isSameAs(fatal);
+    }
+
     @Test void orbitWrappingPreservesSubDayMotion() {
         var start = Instant.parse("2024-01-01T00:00:00Z");
         var samples = List.of(new JplEphemerisProvider.TrajectorySample(start, new Vector3Au(1,0,0)),

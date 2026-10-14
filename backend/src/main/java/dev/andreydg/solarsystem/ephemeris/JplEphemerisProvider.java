@@ -42,7 +42,10 @@ public class JplEphemerisProvider implements EphemerisProvider {
         var existing = loading.putIfAbsent(key, mine);
         if (existing != null) {
             try { return existing.join(); }
-            catch (java.util.concurrent.CompletionException ex) { throw (RuntimeException) ex.getCause(); }
+            catch (java.util.concurrent.CompletionException ex) {
+                if (ex.getCause() instanceof Error fatal) throw fatal;
+                throw (RuntimeException) ex.getCause();
+            }
         }
         try {
             synchronized (cache) {
@@ -53,10 +56,13 @@ public class JplEphemerisProvider implements EphemerisProvider {
             synchronized (cache) { cache.put(key, value); }
             mine.complete(value);
             return value;
-        } catch (RuntimeException ex) {
+        } catch (RuntimeException | Error ex) {
             mine.completeExceptionally(ex);
             throw ex;
-        } finally { loading.remove(key, mine); }
+        } finally {
+            mine.completeExceptionally(new IllegalStateException("Position load did not complete"));
+            loading.remove(key, mine);
+        }
     }
 
     public List<HeliocentricDistanceSample> heliocentricDistanceSamples(

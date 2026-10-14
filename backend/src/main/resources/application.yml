@@ -3,7 +3,7 @@ server:
   shutdown: graceful
   compression:
     enabled: true
-    mime-types: application/json,text/html,text/css,application/javascript
+    mime-types: application/json,text/html,text/css,application/javascript,text/javascript
     min-response-size: 1024
 
 spring:

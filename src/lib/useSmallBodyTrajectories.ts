@@ -53,6 +53,7 @@ export default function useSmallBodyTrajectories(visibleBodies: BodyId[]) {
       if (cache.current[body] || loading.current.has(body)) continue;
       const controller = new AbortController();
       loading.current.set(body, controller);
+      setErrors(previous => ({ ...previous, [body]: undefined }));
       void loadTrajectoryWithRetry(body, controller.signal).then(trajectory => {
         if (controller.signal.aborted) return;
         cache.current = { ...cache.current, [body]: trajectory };

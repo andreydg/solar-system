@@ -23,9 +23,21 @@ public class TrajectoryFileStore {
     private final TrajectoryCacheProperties properties;
     private final JsonMapper jsonMapper;
 
+    private final java.util.Map<BodyId, List<TrajectorySample>> bundled;
+
+    @org.springframework.beans.factory.annotation.Autowired
     public TrajectoryFileStore(TrajectoryCacheProperties properties, JsonMapper jsonMapper) {
+        this(properties, jsonMapper, TrajectoryFileStore::readBundled);
+    }
+
+    TrajectoryFileStore(TrajectoryCacheProperties properties, JsonMapper jsonMapper,
+                        java.util.function.Function<BodyId, String> resources) {
         this.properties = properties;
         this.jsonMapper = jsonMapper;
+        var snapshots = new java.util.EnumMap<BodyId, List<TrajectorySample>>(BodyId.class);
+        for (var body : List.of(BodyId.CERES, BodyId.VESTA, BodyId.ENCKE, BodyId.HALLEY))
+            snapshots.put(body, parseBundled(body, resources.apply(body)));
+        bundled = java.util.Map.copyOf(snapshots);
     }
 
     public Optional<List<TrajectorySample>> load(BodyId body) {
@@ -109,10 +121,15 @@ public class TrajectoryFileStore {
     }
 
     public List<TrajectorySample> loadBundled(BodyId body) {
-        try (var stream = getClass().getResourceAsStream("/trajectories/" + body.apiValue() + "-v1.txt")) {
+        var samples = bundled.get(body);
+        if (samples == null) throw new IllegalArgumentException("No bundled trajectory for " + body);
+        return samples;
+    }
+
+    static String readBundled(BodyId body) {
+        try (var stream = TrajectoryFileStore.class.getResourceAsStream("/trajectories/" + body.apiValue() + "-v1.txt")) {
             if (stream == null) throw new IllegalStateException("Missing bundled trajectory for " + body);
-            String response = new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-            return parseBundled(body, response);
+            return new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         } catch (java.io.IOException exception) { throw new IllegalStateException("Cannot read bundled trajectory", exception); }
     }
 
