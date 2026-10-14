@@ -342,3 +342,199 @@ test("manual trajectory retry clears the stale error while its new request is pe
   await expect(page.getByText(/Halley's path could not load/)).toHaveCount(0);
   release();
 });
+
+
+test("share links reopen paused with exact UTC state and restore browser history", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.getByLabel("Jump to date (UTC)").fill("2027-02-19T15:45");
+  await page.getByRole("combobox", { name: "Event type", exact: true }).selectOption("opposition");
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  const first = await page.getByLabel("Share link (date, bodies, and focus)").inputValue();
+  await page.getByLabel("Jump to date (UTC)").fill("2028-05-01T12:30");
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.goBack();
+  await expect(page.getByLabel("Jump to date (UTC)")).toHaveValue("2027-02-19T15:45");
+  await page.goto(first);
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Event type", exact: true })).toHaveValue("opposition");
+  await page.getByRole("button", { name: "Explain this date", exact: true }).click();
+  await expect(page.getByRole("img", { name: /Earth-view sky track/ })).toBeVisible();
+});
+
+test("real packaged guides, robots, and sitemap are readable without JavaScript", async ({ browser, request }) => {
+  const robots = await request.get("/robots.txt");
+  expect(robots.ok()).toBeTruthy();
+  expect(await robots.text()).toContain("Sitemap: https://solar.andreyg.com/sitemap.xml");
+  const sitemap = await request.get("/sitemap.xml");
+  expect(sitemap.ok()).toBeTruthy();
+  for (const name of ["retrograde", "opposition", "elongation"]) {
+    expect(await sitemap.text()).toContain("/learn/" + name + ".html");
+    const guide = await request.get("/learn/" + name + ".html");
+    expect(guide.ok()).toBeTruthy();
+    const html = await guide.text();
+    expect(html).toContain('rel="canonical"');
+    expect(html).toContain('property="og:description"');
+    expect(html).not.toContain("<script");
+  }
+  const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  await page.goto("http://127.0.0.1:18080/learn/retrograde.html");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("move backward");
+  await expect(page.getByRole("link", { name: "Open the example in 3D" })).toBeVisible();
+  await context.close();
+});
+
+test("mobile shared view shows explanation and reduced-motion starts paused", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Explain this date", exact: true }).click();
+  await expect(page.getByRole("img", { name: /Earth-view sky track/ })).toBeVisible();
+  await page.getByRole("button", { name: "Close explanation", exact: true }).click();
+  await expect(page.getByRole("img", { name: /Earth-view sky track/ })).toHaveCount(0);
+});
+
+test("Back after the first Share preserves the bare-page draft, result and hash-only navigation", async ({ page }) => {
+  await page.route("**/api/events?**", route => route.fulfill({ json: [
+    { ...event, type: "opposition", timeUtc: "1700-01-02T12:00:00Z", computedTimeUtc: "1700-01-02T12:00:00Z" },
+  ] }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.getByLabel("Jump to date (UTC)").fill("1700-01-01T00:00");
+  await page.getByRole("checkbox", { name: "Mercury", exact: true }).uncheck();
+  await page.getByRole("combobox", { name: "Event type", exact: true }).selectOption("opposition");
+  await page.getByRole("button", { name: "Find", exact: true }).click();
+  await expect(page.getByRole("button", { name: /Next/ })).toBeVisible();
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.goBack();
+  expect(new URL(page.url()).search).toBe("");
+  await expect(page.getByLabel("Jump to date (UTC)")).toHaveValue("1700-01-02T12:00");
+  await expect(page.getByRole("checkbox", { name: "Mercury", exact: true })).not.toBeChecked();
+  await expect(page.getByRole("combobox", { name: "Event type", exact: true })).toHaveValue("opposition");
+  await expect(page.getByRole("button", { name: /Next/ })).toBeVisible();
+  await expect(page.getByText(/Provisional.*queued/i)).toBeVisible();
+  await page.goForward();
+  await expect(page.getByLabel("Jump to date (UTC)")).toHaveValue("1700-01-02T12:00");
+  await page.evaluate(() => { window.location.hash = "x"; });
+  await expect(page.getByRole("button", { name: /Next/ })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("button", { name: /Next/ })).toBeVisible();
+});
+
+test("edits clear stale share links and invalidate the address bar only once", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.getByLabel("Jump to date (UTC)").fill("2027-02-19T15:45");
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  const original = await page.getByLabel("Share link (date, bodies, and focus)").inputValue();
+  await page.evaluate(() => {
+    const replace = history.replaceState.bind(history);
+    Object.assign(window, { replacements: 0 });
+    history.replaceState = (...args) => { (window as unknown as { replacements: number }).replacements++; replace(...args); };
+  });
+  await page.getByLabel("Jump to date (UTC)").fill("2030-06-01T12:00");
+  await expect(page.getByLabel("Share link (date, bodies, and focus)")).toHaveCount(0);
+  expect(new URL(page.url()).search).toBe("");
+  await page.getByRole("checkbox", { name: "Jupiter", exact: true }).uncheck();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await page.evaluate(() => new Promise<void>(resolve => {
+    let frames = 0;
+    const tick = () => { if (++frames === 125) resolve(); else requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }));
+  expect(await page.evaluate(() => (window as unknown as { replacements: number }).replacements)).toBe(1);
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  const updated = await page.getByLabel("Share link (date, bodies, and focus)").inputValue();
+  expect(updated).not.toBe(original);
+  expect(new URL(updated).searchParams.get("bodies")).not.toContain("jupiter");
+  await page.goto(original);
+  await page.getByRole("checkbox", { name: "Mercury", exact: true }).uncheck();
+  await expect.poll(() => new URL(page.url()).search).toBe("");
+});
+
+test("share pages keep canonical SEO without an incorrect home-page Open Graph URL", async ({ page, request }) => {
+  const html = await (await request.get("/?v=1&time=2027-02-19T15:45:00Z")).text();
+  expect(html).toContain('rel="canonical"');
+  expect(html).not.toContain('property="og:url"');
+  await page.goto("/?v=1&time=2027-02-19T15:45:00Z");
+  await page.getByRole("button", { name: "Explain this date", exact: true }).click();
+  await expect(page.getByText("← increasing RA (east)", { exact: true })).toBeVisible();
+});
+test("Back restores an edited share's URL, and reload ignores a mismatched history snapshot", async ({ page }) => {
+  const date = page.getByLabel("Jump to date (UTC)");
+  const share = page.getByRole("button", { name: "Share view", exact: true });
+  await page.goto("/?v=1&time=2027-01-01T00:00:00Z");
+  await share.click();
+  const first = page.url();
+  await date.fill("2028-01-01T00:00");
+  await share.click();
+  await page.goBack();
+  await expect(date).toHaveValue("2027-01-01T00:00");
+  await expect(page).toHaveURL(first);
+  await page.reload();
+  await expect(date).toHaveValue("2027-01-01T00:00");
+
+  // A stripped shared entry survives reload in history.state, but must not own the new draft.
+  await date.fill("2028-01-01T00:00");
+  await expect.poll(() => new URL(page.url()).search).toBe("");
+  await page.reload();
+  await date.fill("1700-01-01T00:00");
+  await share.click();
+  await page.goBack();
+  await expect(date).toHaveValue("1700-01-01T00:00");
+  expect(new URL(page.url()).search).toBe("");
+});
+
+test("shared views and Share work when crypto.randomUUID is unavailable", async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(crypto, "randomUUID", { value: undefined }));
+  await page.goto("/?v=1&time=1700-01-01T00:00:00Z");
+  await expect(page.getByLabel("Jump to date (UTC)")).toHaveValue("1700-01-01T00:00");
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await expect(page.getByLabel("Share link (date, bodies, and focus)")).toBeVisible();
+});
+
+test("Share immediately after a queued playback tick keeps one exact paused timestamp", async ({ page }) => {
+  await page.addInitScript(() => {
+    let next = 0;
+    const queued = new Map<number, FrameRequestCallback>();
+    window.requestAnimationFrame = callback => { queued.set(++next, callback); return next; };
+    window.cancelAnimationFrame = id => { queued.delete(id); };
+    Object.assign(window, { stepFrame: (now: number) => {
+      const callbacks = [...queued.values()]; queued.clear();
+      callbacks.forEach(callback => callback(now));
+    } });
+  });
+  await page.goto("/?v=1&time=2027-01-01T00:00:00Z");
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await page.evaluate(() => {
+    const step = (window as unknown as { stepFrame: (now: number) => void }).stepFrame;
+    step(1000); step(1110); // publish a tick without letting React render it yet
+    [...document.querySelectorAll("button")].find(b => b.textContent === "Share view")!.click();
+    step(1210); // callback already queued before Share must now be inert
+  });
+  const expected = "2027-01-02T02:24:00.000Z"; // 110 ms at 10 simulated days/sec
+  await expect(page.getByLabel("Jump to date (UTC)")).toHaveValue("2027-01-02T02:24");
+  const link = await page.getByLabel("Share link (date, bodies, and focus)").inputValue();
+  expect(new URL(link).searchParams.get("time")).toBe(expected);
+  await expect(page).toHaveURL(link);
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+});
+
+test("sharing an active search never restores a phantom Searching status", async ({ page }) => {
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/events?**", async route => { await pending; await route.fulfill({ json: [event] }); });
+  await page.goto("/?v=1&time=2026-01-01T00:00:00Z");
+  await page.getByRole("button", { name: "Find", exact: true }).click();
+  await expect(page.getByText("Searching for next event...", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.goBack();
+  await expect(page.getByRole("button", { name: "Find", exact: true })).toBeEnabled();
+  await expect(page.getByText("Searching for next event...", { exact: true })).toHaveCount(0);
+  await page.goForward();
+  await expect(page.getByText("Searching for next event...", { exact: true })).toHaveCount(0);
+  release();
+});

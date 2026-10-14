@@ -298,6 +298,34 @@ whole group. Simulation state updates at most ten times/sec, pauses work in hidd
 tabs, and starts paused for reduced-motion users. Texture and hashed-asset HTTP
 caching are explicit; the runtime container runs as an unprivileged user.
 
+## Sharing and organic discovery
+
+Share view preserves the current draft (including a loaded event) in browser history before its first share. Back/Forward restore snapshots; hash-only navigation leaves the scene alone. Editing a shared field clears the selectable link and removes its stale query string once, not on every animation frame. Choose Share view again to publish the updated snapshot. Sky tracks use the conventional east-left orientation.
+
+Share view copies a versioned URL and also displays a selectable link if clipboard
+access is unavailable. It preserves UTC time, body visibility, search criteria and
+focused body, opens paused, and supports browser back/forward. It does not preserve
+an arbitrary camera rotation or assert that a displayed date is validated.
+Explain this date captures an on-demand snapshot, with a geometric Earth-view
+track for major planets. It does not recalculate that chart every animation frame.
+
+`npm run build` also pre-renders three human-written guides and a sitemap; robots
+and page/social metadata are served as real production resources. Guides load
+without JavaScript or any catalog request. Shared query URLs canonicalize to the
+home page, so they do not create thousands of thin indexed event pages.
+
+Before paid acquisition (operator checklist, not automated by this PR):
+
+1. Complete the index/schema migration and worker-trigger rollout above; verify
+   latency, 429/5xx rates, worker backlog age and Firestore cost at a capped load.
+2. After deployment, verify guide URLs and the sitemap in Search Console.
+3. Share a few genuinely useful examples with astronomy educators/clubs, asking
+   for feedback before broad outreach. Pair a retrograde sky track with its 3D
+   view rather than advertising precision the model does not provide.
+4. Measure guide-to-explorer visits and repeat usage using an explicitly approved,
+   privacy-conscious analytics setup. No analytics vendor, tracking cookie,
+   outbound promotion, or cloud resource is enabled by this code.
+
 ## Catalog rollback and retries
 
 After **any** rollback to an older writer, drain/stop that revision, rerun the
@@ -358,6 +386,14 @@ The scene reads a frame-rate clock ref; bodies, comet tails, labels, event lines
 camera-follow move every frame. React controls publish at most ten updates/second. Hidden tabs pause without catch-up, stalls are capped at 250 ms, and
 changing the speed does not restart the clock. Long-lived asset cache headers are
 set only after successful resource resolution; missing assets remain no-store.
+
+### Share and history consistency
+
+Share synchronously pauses the live clock before copying its timestamp. Back and
+Forward restore an original share's URL along with its view, while a reload of a
+bare URL ignores stale shared history state. Explicit body focus wins over a
+restored event's pair framing. In-progress search messages are not stored as
+finished history snapshots; share keys do not require a secure-context crypto API.
 
 ## Credits
 
