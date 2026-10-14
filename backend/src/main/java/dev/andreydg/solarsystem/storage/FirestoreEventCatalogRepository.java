@@ -61,11 +61,17 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
                                 String version = snapshot.getUpdateTime().getSeconds() + "-" + snapshot.getUpdateTime().getNanos();
                                 transaction.set(refs.get(i).collection("_corrupt").document(version), snapshot.getData());
                                 transaction.set(refs.get(i), toDocument(chunk.get(i)));
+                                if (chunk.get(i).validationStatus() == ValidationStatus.PENDING)
+                                    transaction.set(firestore.collection(collection + "-validation").document(chunk.get(i).id()), FirestoreValidationJobs.initial(Instant.now()));
                                 actual.add(chunk.get(i));
                             }
                         } else {
                             transaction.create(refs.get(i), toDocument(chunk.get(i)));
-                            actual.add(chunk.get(i));
+                            var event = chunk.get(i);
+                            if (event.validationStatus() == ValidationStatus.PENDING) {
+                                transaction.set(firestore.collection(collection + "-validation").document(event.id()), FirestoreValidationJobs.initial(Instant.now()));
+                            }
+                            actual.add(event);
                         }
                     }
                     return actual;

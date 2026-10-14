@@ -2,7 +2,6 @@ package dev.andreydg.solarsystem.jpl;
 
 import dev.andreydg.solarsystem.catalog.BodyId;
 import dev.andreydg.solarsystem.catalog.CatalogEvent;
-import dev.andreydg.solarsystem.catalog.CatalogEventsGeneratedEvent;
 import dev.andreydg.solarsystem.catalog.EventCatalogService;
 import dev.andreydg.solarsystem.config.JplProperties;
 import dev.andreydg.solarsystem.ephemeris.Vector3Au;
@@ -34,37 +33,6 @@ public class JplValidationService {
 
     public JplVector position(dev.andreydg.solarsystem.catalog.BodyId body, java.time.Instant timeUtc) {
         return horizonsClient.vector(body, timeUtc);
-    }
-
-    @Async("jplValidationExecutor")
-    @EventListener
-    public void validateGeneratedEvents(CatalogEventsGeneratedEvent generatedEvent) {
-        if (!properties.asyncValidationEnabled()) {
-            return;
-        }
-
-        for (String eventId : generatedEvent.eventIds()) {
-            try {
-                validateEvent(eventId);
-            } catch (JplHorizonsException exception) {
-                if (exception.isTransient()) {
-                    // Leave the event PENDING so it can be revalidated later instead of marking it
-                    // FAILED on a temporary outage (timeout, HTTP 429/5xx).
-                    continue;
-                }
-                markFailed(eventId, exception);
-            } catch (RuntimeException exception) {
-                markFailed(eventId, exception);
-            }
-        }
-    }
-
-    private void markFailed(String eventId, RuntimeException exception) {
-        catalogService.findById(eventId)
-            .ifPresent(event -> catalogService.storeValidationFailure(
-                event,
-                "JPL validation failed: " + sanitizeFailureMessage(exception)
-            ));
     }
 
     public CatalogEvent validateEvent(String eventId) {
@@ -111,8 +79,7 @@ public class JplValidationService {
             event.computedDistanceAu()
         );
 
-        return catalogService.storeValidation(
-            event,
+        return event.validated(
             refined.time(),
             refined.distanceAu(),
             null,
@@ -152,8 +119,7 @@ public class JplValidationService {
             event.computedDistanceAu()
         );
 
-        return catalogService.storeValidation(
-            event,
+        return event.validated(
             refinedBest.time(),
             refinedBest.distanceAu(),
             null,
@@ -190,8 +156,7 @@ public class JplValidationService {
             event.computedMagnitude()
         );
 
-        return catalogService.storeValidation(
-            event,
+        return event.validated(
             refinedBest.time(),
             null,
             null,
@@ -264,8 +229,7 @@ public class JplValidationService {
             deltaDeg
         );
 
-        return catalogService.storeValidation(
-            event,
+        return event.validated(
             refinedBest.time(),
             null,
             refinedBest.angleDeg(),
@@ -315,8 +279,7 @@ public class JplValidationService {
             deltaDeg
         );
 
-        return catalogService.storeValidation(
-            event,
+        return event.validated(
             event.computedTimeUtc(),
             null,
             angleDeg,
@@ -349,8 +312,7 @@ public class JplValidationService {
             deltaHours
         );
 
-        return catalogService.storeValidation(
-            event,
+        return event.validated(
             refinedBest,
             null,
             null,
@@ -488,23 +450,6 @@ public class JplValidationService {
         return diff > 180.0 ? diff - 360.0 : diff;
     }
 
-    private static String sanitizeFailureMessage(RuntimeException exception) {
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) {
-            return "unknown error";
-        }
-
-        String stripped = message
-            .replaceAll("(?is)<[^>]*>", " ")
-            .replaceAll("\\s+", " ")
-            .trim();
-
-        if (stripped.length() > 220) {
-            return stripped.substring(0, 220) + "...";
-        }
-
-        return stripped;
-    }
 
     private record DistanceSample(Instant time, double distanceAu) {
     }

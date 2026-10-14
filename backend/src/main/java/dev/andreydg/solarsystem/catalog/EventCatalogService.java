@@ -41,17 +41,14 @@ public class EventCatalogService {
 
     private final CompositeEphemerisProvider ephemerisProvider;
     private final EventCatalogRepository repository;
-    private final ApplicationEventPublisher eventPublisher;
     private final EmptyWindowCache emptyWindows = new EmptyWindowCache(java.time.Clock.systemUTC());
 
     public EventCatalogService(
         CompositeEphemerisProvider ephemerisProvider,
-        EventCatalogRepository repository,
-        ApplicationEventPublisher eventPublisher
+        EventCatalogRepository repository
     ) {
         this.ephemerisProvider = ephemerisProvider;
         this.repository = repository;
-        this.eventPublisher = eventPublisher;
     }
 
     public List<CatalogEvent> generate(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
@@ -104,16 +101,6 @@ public class EventCatalogService {
         }
 
         List<CatalogEvent> stored = repository.upsertAll(validEvents);
-
-        List<String> validatableIds = stored.stream()
-            .filter(event -> event.validationStatus() == ValidationStatus.PENDING)
-            .filter(event -> event.type().supportsJplValidation())
-            .map(CatalogEvent::id)
-            .toList();
-
-        if (!validatableIds.isEmpty()) {
-            eventPublisher.publishEvent(new CatalogEventsGeneratedEvent(validatableIds));
-        }
 
         if (validEvents.isEmpty()) emptyWindows.remember(window);
 
