@@ -124,6 +124,48 @@ preserving the original computed values for traceability.
 
 ### API safety and operations
 
+### Indexed catalog rollout (required before serving catalog traffic)
+
+Catalog queries now use native Firestore timestamps, canonical pair keys, database
+filters, stable `(displayTime, document ID)` cursors, and bounded pages. The public
+list endpoints preserve their array response; `X-Next-Cursor` supplies the next
+page. `limit` is 1–100, `descending` changes database order, and `cursor` continues
+the same query. The validated-events UI sends date filters and loads 50 at a time.
+Next/previous event lookups request one result, with one lookahead document for
+pagination. Empty generation windows are remembered for ten minutes in a bounded
+256-entry per-instance cache, never indefinitely and never as cached event data.
+
+Do **not** enable traffic on a new database/revision before this rollout:
+
+1. Back up the catalog and stop/drain old generation and validation writers.
+2. Deploy `firestore.indexes.json` with `firebase deploy --only firestore:indexes
+   --project YOUR_PROJECT` and wait for every index to finish building. If using a
+   named database/custom collection, deploy the indexes to that exact target.
+3. Build the new jar and run the migration in dry-run mode against the explicitly
+   selected project/database. No records are deleted or scientific values changed.
+
+   ```bash
+   GOOGLE_CLOUD_PROJECT=YOUR_PROJECT java -jar backend/target/solar-system-backend-0.1.0.jar \
+     --spring.main.web-application-type=none \
+     --solar-system.trajectories.prewarm-enabled=false \
+     --solar-system.jpl.async-validation-enabled=false \
+     --solar-system.migration.enabled=true
+   ```
+
+4. Review the counts, repair malformed records, then repeat with
+   `--solar-system.migration.apply=true`. Writes use update-time preconditions so
+   concurrent changes abort instead of being overwritten. It is safe to rerun.
+5. The migration activates `_catalogMetadata/events.indexedQueriesReady` only
+   after a complete successful scan. Smoke-test filtered reads and both paging
+   directions, then resume traffic. Without that marker the app returns an explicit
+   503 instead of silently omitting legacy records. Rollback requires stopping new
+   writers before restoring an old revision; older writers do not maintain indexes.
+
+For a local emulator use `FIRESTORE_EMULATOR_HOST=127.0.0.1:18085` and a test project
+with the same command. Repository/migration regression tests refuse non-local
+hosts: `FIRESTORE_EMULATOR_HOST=127.0.0.1:18085 mvn -f backend/pom.xml test
+-Pfirestore-tests`. Normal tests and the live JPL profile remain separate.
+
 Generation/query windows must be increasing and at most 31 years; dates are bounded
 to 1600–3000. Generation has a cooperative 30-second calculation budget. Expensive
 planet-only generation is limited to two concurrent requests, independently of 32 catalog-read,
@@ -167,6 +209,20 @@ npm run build
 mvn -f backend/pom.xml test
 mvn -f backend/pom.xml package
 ```
+
+### Catalog rollback and retries
+
+After **any** rollback to an older writer, drain/stop that revision, rerun the
+index migration with `--solar-system.migration.apply=true`, and verify the
+indexes before enabling traffic on this version again. The readiness marker is
+not a live detector of writes from old binaries. Never run old and new writers
+against the collection concurrently. New generation uses create-only transactions
+so an existing validated event is never downgraded even when a legacy document is
+missing from the indexed query.
+
+Public catalog reads never schedule validation retries. Use the authenticated
+POST validation endpoint to request retries; reads must remain free of hidden
+JPL work. The durable-worker PR makes this an explicit queued operation.
 
 ## Credits
 

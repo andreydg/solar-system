@@ -2,7 +2,11 @@ package dev.andreydg.solarsystem.storage;
 
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
-import com.google.cloud.firestore.WriteBatch;
+import com.google.cloud.firestore.Query;
+import com.google.cloud.firestore.FieldPath;
+import com.google.cloud.Timestamp;
+import dev.andreydg.solarsystem.catalog.CatalogQuery;
+import dev.andreydg.solarsystem.catalog.CatalogPage;
 import dev.andreydg.solarsystem.catalog.BodyId;
 import dev.andreydg.solarsystem.catalog.CatalogEvent;
 import dev.andreydg.solarsystem.catalog.EventType;
@@ -25,11 +29,12 @@ import org.springframework.stereotype.Repository;
 @ConditionalOnProperty(name = "solar-system.storage", havingValue = "firestore", matchIfMissing = true)
 public class FirestoreEventCatalogRepository implements EventCatalogRepository {
     private static final Logger log = LoggerFactory.getLogger(FirestoreEventCatalogRepository.class);
-    // Firestore caps a batched write at 500 operations; stay under it with margin.
-    private static final int MAX_BATCH_SIZE = 450;
+    // Transactions may write an event, a quarantine copy, and (in the worker layer) a job.
+    private static final int MAX_BATCH_SIZE = 100;
 
     private final Firestore firestore;
     private final String collection;
+    private volatile boolean indexedSchemaReady;
 
     public FirestoreEventCatalogRepository(Firestore firestore, FirestoreProperties properties) {
         this.firestore = firestore;
@@ -37,21 +42,36 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
     }
 
     @Override
-    public void upsertAll(List<CatalogEvent> events) {
-        if (events.isEmpty()) {
-            return;
-        }
-
+    public List<CatalogEvent> upsertAll(List<CatalogEvent> events) {
+        List<CatalogEvent> stored = new ArrayList<>();
         try {
-            // Commit in batches instead of one round-trip per document.
             for (int start = 0; start < events.size(); start += MAX_BATCH_SIZE) {
                 List<CatalogEvent> chunk = events.subList(start, Math.min(start + MAX_BATCH_SIZE, events.size()));
-                WriteBatch batch = firestore.batch();
-                for (CatalogEvent event : chunk) {
-                    batch.set(firestore.collection(collection).document(event.id()), toDocument(event));
-                }
-                batch.commit().get();
+                stored.addAll(firestore.runTransaction(transaction -> {
+                    var refs = chunk.stream().map(event -> firestore.collection(collection).document(event.id())).toList();
+                    var snapshots = transaction.getAll(refs.toArray(com.google.cloud.firestore.DocumentReference[]::new)).get();
+                    List<CatalogEvent> actual = new ArrayList<>();
+                    for (int i = 0; i < chunk.size(); i++) {
+                        if (snapshots.get(i).exists()) {
+                            try { actual.add(fromDocument(snapshots.get(i).getData())); }
+                            catch (RuntimeException malformed) {
+                                var snapshot = snapshots.get(i);
+                                log.warn("Repairing malformed catalog record {} ({})", snapshot.getId(), malformed.getClass().getSimpleName());
+                                // Preserve the exact original before repairing; never discard possibly accepted values.
+                                String version = snapshot.getUpdateTime().getSeconds() + "-" + snapshot.getUpdateTime().getNanos();
+                                transaction.set(refs.get(i).collection("_corrupt").document(version), snapshot.getData());
+                                transaction.set(refs.get(i), toDocument(chunk.get(i)));
+                                actual.add(chunk.get(i));
+                            }
+                        } else {
+                            transaction.create(refs.get(i), toDocument(chunk.get(i)));
+                            actual.add(chunk.get(i));
+                        }
+                    }
+                    return actual;
+                }).get());
             }
+            return stored;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new EventCatalogStorageException("Interrupted while writing events", e);
@@ -76,31 +96,45 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
     }
 
     @Override
-    public List<CatalogEvent> find(
-        EventType type,
-        BodyId bodyA,
-        BodyId bodyB,
-        Instant from,
-        Instant to
-    ) {
-        BodyIdOrdered ordered = getStoredOrder(type, bodyA, bodyB);
+    public CatalogPage search(CatalogQuery criteria) {
         try {
-            var documents = firestore.collection(collection)
-                .whereEqualTo("type", type.apiValue())
-                .whereEqualTo("bodyA", ordered.bodyA().apiValue())
-                .whereEqualTo("bodyB", ordered.bodyB().apiValue())
-                .get()
-                .get()
-                .getDocuments();
-
-            return toEventsSkippingMalformed(documents).stream()
-                .filter(event -> !event.displayTimeUtc().isBefore(from) && !event.displayTimeUtc().isAfter(to))
-                .sorted(Comparator.comparing(CatalogEvent::displayTimeUtc))
-                .toList();
+            requireIndexedSchema();
+            Query query = firestore.collection(collection);
+            if (criteria.type() != null) query = query.whereEqualTo("type", criteria.type().apiValue());
+            if (criteria.validatedOnly()) query = query.whereEqualTo("validationStatus", ValidationStatus.VALIDATED.storedValue());
+            if (criteria.bodyA() != null && criteria.bodyB() != null) {
+                query = query.whereEqualTo("pairKey", CatalogQuery.pairKey(criteria.bodyA(), criteria.bodyB()));
+            } else if (criteria.bodyA() != null || criteria.bodyB() != null) {
+                query = query.whereArrayContains("bodies", (criteria.bodyA() == null ? criteria.bodyB() : criteria.bodyA()).apiValue());
+            }
+            var direction = criteria.descending() ? Query.Direction.DESCENDING : Query.Direction.ASCENDING;
+            query = query.whereGreaterThanOrEqualTo("displayTime", timestamp(criteria.from()))
+                .whereLessThanOrEqualTo("displayTime", timestamp(criteria.to()))
+                .orderBy("displayTime", direction).orderBy(FieldPath.documentId(), direction);
+            if (criteria.cursor() != null && !criteria.cursor().isBlank()) {
+                var cursor = CatalogQuery.decode(criteria.cursor());
+                query = query.startAfter(timestamp(cursor.time()), firestore.collection(collection).document(cursor.id()));
+            }
+            var documents = query.limit(criteria.limit() + 1).get().get().getDocuments();
+            var page = documents.subList(0, Math.min(criteria.limit(), documents.size()));
+            String next = null;
+            if (documents.size() > criteria.limit()) {
+                var last = page.getLast();
+                next = CatalogQuery.encode(instant(last.getTimestamp("displayTime")), last.getId());
+            }
+            return new CatalogPage(toEventsSkippingMalformed(page), next);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new EventCatalogStorageException("Interrupted while querying events", e);
         } catch (ExecutionException e) {
+            for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+                if (cause instanceof com.google.api.gax.rpc.ApiException api
+                    && api.getStatusCode().getCode() == com.google.api.gax.rpc.StatusCode.Code.FAILED_PRECONDITION) {
+                    log.warn("Catalog index query is not ready", e);
+                    throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                        "Catalog indexes are not ready; retry after index deployment", e);
+                }
+            }
             throw new EventCatalogStorageException("Failed to query events", e);
         }
     }
@@ -118,23 +152,14 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
         }
     }
 
-    @Override
-    public List<CatalogEvent> findAllValidated() {
-        try {
-            var documents = firestore.collection(collection)
-                .whereEqualTo("validationStatus", ValidationStatus.VALIDATED.storedValue())
-                .get()
-                .get()
-                .getDocuments();
-
-            return toEventsSkippingMalformed(documents).stream()
-                .sorted(Comparator.comparing(CatalogEvent::displayTimeUtc))
-                .toList();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new EventCatalogStorageException("Interrupted while querying validated events", e);
-        } catch (ExecutionException e) {
-            throw new EventCatalogStorageException("Failed to query validated events", e);
+    private void requireIndexedSchema() throws InterruptedException, ExecutionException {
+        if (!indexedSchemaReady) {
+            var metadata = firestore.collection("_catalogMetadata").document(collection).get().get();
+            if (!Boolean.TRUE.equals(metadata.getBoolean("indexedQueriesReady"))) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                    "Catalog index migration required; see the deployment runbook");
+            }
+            indexedSchemaReady = true;
         }
     }
 
@@ -151,13 +176,15 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
         return events;
     }
 
-    private static boolean matchesPair(CatalogEvent event, BodyId bodyA, BodyId bodyB) {
-        return event.bodyA() == bodyA && event.bodyB() == bodyB
-            || event.bodyA() == bodyB && event.bodyB() == bodyA;
+    static Map<String, Object> indexFields(CatalogEvent event) {
+        return Map.of("displayTime", timestamp(event.displayTimeUtc()),
+            "pairKey", CatalogQuery.pairKey(event.bodyA(), event.bodyB()),
+            "bodies", List.of(event.bodyA().apiValue(), event.bodyB().apiValue()), "readSchemaVersion", 1L);
     }
 
-    private static Map<String, Object> toDocument(CatalogEvent event) {
+    static Map<String, Object> toDocument(CatalogEvent event) {
         Map<String, Object> document = new HashMap<>();
+        document.putAll(indexFields(event));
         document.put("id", event.id());
         document.put("type", event.type().apiValue());
         document.put("bodyA", event.bodyA().apiValue());
@@ -184,7 +211,7 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
         return document;
     }
 
-    private static CatalogEvent fromDocument(Map<String, Object> document) {
+    static CatalogEvent fromDocument(Map<String, Object> document) {
         return new CatalogEvent(
             (String) document.get("id"),
             EventType.fromApiValue((String) document.get("type")),
@@ -223,16 +250,8 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
         return value == null ? null : ((Number) value).doubleValue();
     }
 
-    private static BodyIdOrdered getStoredOrder(EventType type, BodyId bodyA, BodyId bodyB) {
-        if (type == EventType.CLOSEST_APPROACH || type == EventType.FARTHEST_APPROACH) {
-            return bodyA.ordinal() <= bodyB.ordinal()
-                ? new BodyIdOrdered(bodyA, bodyB)
-                : new BodyIdOrdered(bodyB, bodyA);
-        } else {
-            BodyId target = bodyA == BodyId.EARTH ? bodyB : bodyA;
-            return new BodyIdOrdered(BodyId.EARTH, target);
-        }
+    static Timestamp timestamp(Instant time) {
+        return Timestamp.ofTimeSecondsAndNanos(time.getEpochSecond(), time.getNano());
     }
-
-    private record BodyIdOrdered(BodyId bodyA, BodyId bodyB) {}
+    static Instant instant(Timestamp time) { return Instant.ofEpochSecond(time.getSeconds(), time.getNanos()); }
 }

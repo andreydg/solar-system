@@ -4,6 +4,8 @@ import dev.andreydg.solarsystem.catalog.BodyId;
 import dev.andreydg.solarsystem.catalog.CatalogEvent;
 import dev.andreydg.solarsystem.catalog.EventType;
 import dev.andreydg.solarsystem.catalog.ValidationStatus;
+import dev.andreydg.solarsystem.catalog.CatalogQuery;
+import dev.andreydg.solarsystem.catalog.CatalogPage;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
@@ -19,19 +21,24 @@ public class InMemoryEventCatalogRepository implements EventCatalogRepository {
     private final ConcurrentMap<String, CatalogEvent> events = new ConcurrentHashMap<>();
 
     @Override
-    public void upsertAll(List<CatalogEvent> events) {
-        events.forEach(this::upsert);
+    public List<CatalogEvent> upsertAll(List<CatalogEvent> events) {
+        return events.stream().map(event -> this.events.computeIfAbsent(event.id(), id -> event)).toList();
     }
 
     @Override
-    public List<CatalogEvent> find(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
-        return events.values()
-            .stream()
-            .filter(event -> event.type() == type)
-            .filter(event -> matchesPair(event, bodyA, bodyB))
-            .filter(event -> !event.displayTimeUtc().isBefore(from) && !event.displayTimeUtc().isAfter(to))
-            .sorted(Comparator.comparing(CatalogEvent::displayTimeUtc))
-            .toList();
+    public CatalogPage search(CatalogQuery query) {
+        var cursor = query.cursor() == null || query.cursor().isBlank() ? null : CatalogQuery.decode(query.cursor());
+        var found = events.values().stream().filter(query::matches).sorted(query.ordering())
+            .filter(event -> {
+                if (cursor == null) return true;
+                int order = event.displayTimeUtc().compareTo(cursor.time());
+                if (order == 0) order = event.id().compareTo(cursor.id());
+                return query.descending() ? order < 0 : order > 0;
+            }).limit(query.limit() + 1L).toList();
+        var page = found.stream().limit(query.limit()).toList();
+        String next = found.size() > query.limit()
+            ? CatalogQuery.encode(page.getLast().displayTimeUtc(), page.getLast().id()) : null;
+        return new CatalogPage(page, next);
     }
 
     @Override
@@ -40,21 +47,8 @@ public class InMemoryEventCatalogRepository implements EventCatalogRepository {
     }
 
     @Override
-    public List<CatalogEvent> findAllValidated() {
-        return events.values()
-            .stream()
-            .filter(event -> event.validationStatus() == ValidationStatus.VALIDATED)
-            .sorted(Comparator.comparing(CatalogEvent::displayTimeUtc))
-            .toList();
-    }
-
-    @Override
     public void upsert(CatalogEvent event) {
         events.put(event.id(), event);
     }
 
-    private static boolean matchesPair(CatalogEvent event, BodyId bodyA, BodyId bodyB) {
-        return event.bodyA() == bodyA && event.bodyB() == bodyB
-            || event.bodyA() == bodyB && event.bodyB() == bodyA;
-    }
 }

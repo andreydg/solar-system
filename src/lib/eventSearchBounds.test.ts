@@ -20,3 +20,28 @@ it.each([
     expect(new Date(range.to).getUTCFullYear()).toBeLessThan(3000);
   }
 });
+
+it("follows empty catalog cursors instead of generating duplicate events", async () => {
+  const fetcher = vi.fn().mockResolvedValueOnce(new Response("[]", { headers: { "X-Next-Cursor": "next-page" } }))
+    .mockResolvedValueOnce(new Response(JSON.stringify([{
+      id: "valid", type: "opposition", bodyA: "earth", bodyB: "mars",
+      timeUtc: "2991-01-01T00:00:00Z", computedTimeUtc: "2991-01-01T00:00:00Z",
+      angleDeg: 180, validationStatus: "validated",
+    }])));
+  vi.stubGlobal("fetch", fetcher);
+  expect((await findNextEvent("opposition", "earth", "mars", new Date("2990-01-01Z")))?.id).toBe("valid");
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(fetcher.mock.calls[1][0]).toContain("cursor=next-page");
+  expect(fetcher.mock.calls.every(call => !call[1])).toBe(true);
+});
+
+it("falls back to bounded generation after twenty skipped catalog pages", async () => {
+  const fetcher = vi.fn(async (_url: string, options?: RequestInit) => options?.method === "POST"
+    ? new Response(JSON.stringify([{ id: "repaired", type: "opposition", bodyA: "earth", bodyB: "mars",
+        timeUtc: "2991-01-01T00:00:00Z", computedTimeUtc: "2991-01-01T00:00:00Z", validationStatus: "pending" }]))
+    : new Response("[]", { headers: { "X-Next-Cursor": "stuck" } }));
+  vi.stubGlobal("fetch", fetcher);
+  expect((await findNextEvent("opposition", "earth", "mars", new Date("2990-01-01Z")))?.id).toBe("repaired");
+  expect(fetcher).toHaveBeenCalledTimes(21);
+  expect(fetcher.mock.calls[20][1]?.method).toBe("POST");
+});
