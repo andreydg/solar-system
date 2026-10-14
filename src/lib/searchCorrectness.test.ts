@@ -30,6 +30,13 @@ describe("search correctness", () => {
       expect(Math.abs(previous!.time.getTime() - minimum)).toBeLessThan(3600000);
     }
   });
+  it("never returns the exact anchor minimum again", () => {
+    const first = findClosestApproach("earth", "mars", new Date("2027-01-01Z"), new Date("2028-01-01Z"))!;
+    const next = findClosestApproach("earth", "mars", first.time, new Date("2031-01-01Z"));
+    expect(next?.time.getUTCFullYear()).toBe(2029);
+    const previous = findClosestApproach("earth", "mars", new Date("2024-01-01Z"), first.time, "prev");
+    expect(previous?.time.getUTCFullYear()).toBe(2025);
+  });
   it("does not mask rate limits or bad requests with a browser fallback", () => {
     expect(canUseBrowserFallback(new HttpError(429, "Wait"))).toBe(false);
     expect(canUseBrowserFallback(new HttpError(400, "Invalid"))).toBe(false);

@@ -15,6 +15,8 @@ import SceneCamera from "./SceneCamera";
 const ORBIT_SAMPLE_COUNT = 192;
 const TRAIL_EPOCH = new Date("2026-01-01T00:00:00Z");
 
+const FALLBACK_TEXTURE = "/textures/moon.jpg";
+const SUN_TEXTURE = "/textures/sunmap.jpg";
 const PLANET_TEXTURES: Record<string, string> = {
   mercury: "/textures/mercurymap.jpg",
   venus: "/textures/venusmap.jpg",
@@ -29,7 +31,7 @@ const PLANET_TEXTURES: Record<string, string> = {
 // Only invoked after a failed scene load, so successful visits keep their texture cache.
 // eslint-disable-next-line react-refresh/only-export-components -- Called only after this lazy scene module loads.
 export function resetSceneResources() {
-  for (const url of [...Object.values(PLANET_TEXTURES), "/textures/sunmap.jpg"])
+  for (const url of [...Object.values(PLANET_TEXTURES), SUN_TEXTURE, FALLBACK_TEXTURE])
     useTexture.clear(url);
 }
 
@@ -170,7 +172,7 @@ export default function SolarSystemScene({
 }
 
 function Sun({ onSelect }: { onSelect: () => void }) {
-  const texture = useTexture("/textures/sunmap.jpg", (loaded) => {
+  const texture = useTexture(SUN_TEXTURE, (loaded) => {
     (loaded as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
   });
   return (
@@ -336,7 +338,7 @@ export function Planet({ highlighted, position, onSelect }: BodyProps) {
   const body = BODY_BY_ID[position.body];
   const scenePosition = toScenePoint(position.positionAu);
   const visualRadius = getVisualRadius(body.radiusKm, highlighted, false);
-  const textureUrl = PLANET_TEXTURES[position.body] || "/textures/moon.jpg";
+  const textureUrl = PLANET_TEXTURES[position.body] || FALLBACK_TEXTURE;
   const texture = useTexture(textureUrl, (loaded) => {
     (loaded as THREE.Texture).colorSpace = THREE.SRGBColorSpace;
   });

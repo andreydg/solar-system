@@ -14,10 +14,19 @@ function webglAvailable() {
 export default class SceneBoundary extends Component<SolarSystemSceneProps, { failed: boolean }> {
   state = { failed: !webglAvailable() };
   private resetResources?: () => void;
+  private importFailures = 0;
   private loadScene = async () => {
-    const module = await import("./SolarSystemScene");
-    this.resetResources = module.resetSceneResources;
-    return module;
+    try {
+      const module = await import("./SolarSystemScene");
+      this.resetResources = module.resetSceneResources;
+      this.importFailures = 0;
+      return module;
+    } catch (failure) {
+      // A second failure can be a cached failed import or an obsolete deploy hash.
+      // Reload only after an explicit Retry, never in an automatic reload loop.
+      if (++this.importFailures > 1) window.location.reload();
+      throw failure;
+    }
   };
   private Scene = lazy(this.loadScene);
   static getDerivedStateFromError() { return { failed: true }; }

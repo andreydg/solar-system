@@ -79,20 +79,28 @@ test("UTC year can be typed one digit at a time", async ({ page }) => {
   await date.press("ArrowRight");
   await date.press("ArrowRight");
   await date.pressSequentially("2030");
-  await date.press("Tab");
+  await page.getByRole("heading", { name: "Time", exact: true }).click();
+  await expect(date).toHaveValue("2030-07-04T12:30");
+  await date.fill("0020-07-04T12:30");
+  await page.getByRole("heading", { name: "Time", exact: true }).click();
   await expect(date).toHaveValue("2030-07-04T12:30");
   await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
 });
 
 test("catalog requests work without newer AbortSignal static APIs", async ({ page }) => {
+  let requests = 0;
   await page.addInitScript(() => {
     Object.defineProperty(AbortSignal, "any", { value: undefined });
     Object.defineProperty(AbortSignal, "timeout", { value: undefined });
   });
-  await page.route("**/api/events?**", route => route.fulfill({ json: [event] }));
+  await page.route("**/api/events?**", route => { requests++; return route.fulfill({ json: [{ ...event, type: "opposition" }] }); });
   await page.goto("/");
+  await page.getByRole("combobox", { name: "Event type", exact: true }).selectOption("opposition");
   await page.getByRole("button", { name: "Find", exact: true }).click();
   await expect(page.getByRole("button", { name: /Next/ })).toBeVisible();
+  expect(requests).toBe(1);
+  await expect(page.getByText("Loaded provisional event.", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Backend unavailable/)).toHaveCount(0);
 });
 
 test("missing WebGL is contained and Retry preserves the chosen date", async ({ page }) => {
@@ -142,6 +150,11 @@ test("a texture failure can retry without resetting controls", async ({ page }) 
   await date.press("Tab");
   await page.getByRole("button", { name: "Retry 3D view" }).click();
   await expect(page.locator("canvas")).toBeVisible();
+  await expect.poll(() => attempts).toBe(2);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "Mercury", exact: true }).uncheck();
+  await expect(page.locator(".planet-label").filter({ hasText: "Mars" })).toHaveCount(1);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(date).toHaveValue("1700-01-01T12:30");
 });
@@ -177,4 +190,38 @@ test("validated pagination keeps the applied range and sort when selectors are e
   await expect.poll(() => requests.length).toBe(2);
   expect(requests[1].searchParams.get("from")).toBe("1600-01-01T00:00:00Z");
   expect(requests[1].searchParams.get("descending")).toBe("false");
+});
+
+test("Vesta's failed moon texture refetches and stays recovered after Retry", async ({ page }) => {
+  let attempts = 0;
+  await page.route("**/api/ephemeris/trajectory?**", route => route.fulfill({ json: [
+    { timeUtc: "1600-01-01T00:00:00Z", x: 3, y: 2, z: 0 },
+    { timeUtc: "2999-12-31T00:00:00Z", x: 3, y: 2, z: 0 },
+  ] }));
+  await page.route("**/textures/moon.jpg", route => ++attempts === 1 ? route.abort() : route.continue());
+  await page.goto("/");
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Vesta", exact: true }).check();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await page.getByRole("button", { name: "Retry 3D view", exact: true }).click();
+  await expect.poll(() => attempts).toBe(2);
+  await expect(page.locator(".planet-label").filter({ hasText: "Vesta" })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("checkbox", { name: "Mercury", exact: true }).uncheck();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("a scene import that fails again on Retry reloads the document once", async ({ page }) => {
+  let attempts = 0, documents = 0;
+  page.on("request", request => { if (request.isNavigationRequest()) documents++; });
+  await page.route("**/assets/SolarSystemScene-*.js*", route => ++attempts <= 2 ? route.abort() : route.continue());
+  await page.goto("/");
+  await expect(page.getByRole("alert")).toBeVisible();
+  const navigation = page.waitForEvent("framenavigated", frame => frame === page.mainFrame());
+  await page.getByRole("button", { name: "Retry 3D view", exact: true }).click();
+  await navigation;
+  await expect(page.locator("canvas")).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(documents).toBe(2);
+  expect(attempts).toBe(3);
 });

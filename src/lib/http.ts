@@ -6,8 +6,10 @@ export class RequestTimeoutError extends Error {
   constructor() { super("The server took too long to respond. Try again or choose a shorter date range."); }
 }
 
+export const REQUEST_TIMEOUT_MS = 45_000;
+
 /** Compatible with the supported browsers; listeners and timers have an explicit lifetime. */
-export function requestScope(signal?: AbortSignal, timeoutMs = 45_000) {
+export function requestScope(signal?: AbortSignal, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
   const abort = () => controller.abort(signal?.reason ?? new DOMException("Request cancelled", "AbortError"));
   if (signal?.aborted) abort();
@@ -19,7 +21,7 @@ export function requestScope(signal?: AbortSignal, timeoutMs = 45_000) {
   };
 }
 
-export async function fetchJson<T>(url: string, options: RequestInit = {}, timeoutMs = 45_000): Promise<{ data: T; headers: Headers }> {
+export async function fetchJson<T>(url: string, options: RequestInit = {}, timeoutMs = REQUEST_TIMEOUT_MS): Promise<{ data: T; headers: Headers }> {
   const scope = requestScope(options.signal ?? undefined, timeoutMs);
   try {
     if (scope.signal.aborted) throw scope.signal.reason;

@@ -293,8 +293,6 @@ Public catalog reads never schedule validation retries. Use the authenticated
 POST validation endpoint to request retries; reads must remain free of hidden
 JPL work. The durable-worker PR makes this an explicit queued operation.
 
-
-
 ### Scientific coverage and acceptance fixtures
 
 Validation uses Mars–Neptune system barycentres (Horizons IDs 4–8), with Earth's
@@ -312,8 +310,6 @@ Requests and retrieval provenance are in `backend/src/test/resources/jpl/cases/p
 The capture script prints raw numeric samples; normal tests use only the checked-in
 recordings and real application geometry/photometry, not network calls.
 
-
-
 ### Date editing and browser recovery
 
 The UTC editor keeps incomplete keyboard input as a draft. Valid dates commit;
@@ -325,6 +321,9 @@ per search, longer than the server's 30-second generation calculation budget.
 Only actual fetch failures / server outages enable approximate browser fallback;
 programming errors and cancellations do not. Unsupported WebGL shows an actionable
 fallback, and Retry remounts only the scene, preserving the current view controls.
+
+If the lazy JavaScript chunk fails again on Retry (for example after deployment),
+the browser reloads once to obtain the current asset manifest.
 
 ## Credits
 

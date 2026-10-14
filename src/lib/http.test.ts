@@ -1,5 +1,6 @@
+import serverBudgetSource from "../../backend/src/main/java/dev/andreydg/solarsystem/catalog/GenerationBudget.java?raw";
 import { afterEach, expect, it, vi } from "vitest";
-import { canUseBrowserFallback, fetchJson, HttpError, NetworkError, RequestTimeoutError, requestScope } from "./http";
+import { canUseBrowserFallback, fetchJson, HttpError, NetworkError, RequestTimeoutError, requestScope, REQUEST_TIMEOUT_MS } from "./http";
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
@@ -37,4 +38,34 @@ it("times out with a useful error and handles already-aborted parents", async ()
   expect(child.signal.aborted).toBe(true);
   child.dispose();
   expect(vi.getTimerCount()).toBe(0);
+});
+it("removes every completed request listener from a long-lived parent", async () => {
+  vi.useFakeTimers();
+  const parent = new AbortController();
+  const listeners = new Set<EventListenerOrEventListenerObject>();
+  const add = parent.signal.addEventListener.bind(parent.signal);
+  const remove = parent.signal.removeEventListener.bind(parent.signal);
+  vi.spyOn(parent.signal, "addEventListener").mockImplementation((type, listener, options) => {
+    if (type === "abort" && listener) listeners.add(listener);
+    add(type, listener, options);
+  });
+  vi.spyOn(parent.signal, "removeEventListener").mockImplementation((type, listener, options) => {
+    if (type === "abort" && listener) listeners.delete(listener);
+    remove(type, listener, options);
+  });
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("{}")));
+  for (let i = 0; i < 80; i++) await fetchJson("/test", { signal: parent.signal });
+  expect(listeners.size).toBe(0);
+  expect(vi.getTimerCount()).toBe(0);
+});
+it("keeps the actual default request deadline above the server generation budget", async () => {
+  const serverMs = Number(serverBudgetSource.match(/Duration.ofSeconds\((\d+)\)/)![1]) * 1000;
+  expect(REQUEST_TIMEOUT_MS).toBeGreaterThan(serverMs + 5_000);
+  vi.useFakeTimers();
+  const scope = requestScope();
+  await vi.advanceTimersByTimeAsync(serverMs + 5_000);
+  expect(scope.signal.aborted).toBe(false);
+  await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS);
+  expect(scope.signal.reason).toBeInstanceOf(RequestTimeoutError);
+  scope.dispose();
 });
