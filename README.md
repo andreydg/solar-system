@@ -72,6 +72,10 @@ Do not set `FIRESTORE_EMULATOR_HOST` in Cloud Run; the Firestore client will use
 the deployed service account against real Firestore. The GCP project ID is resolved
 implicitly from the Cloud Run runtime (same as durak-game).
 
+Required Cloud Run environment variable:
+
+- `SOLAR_SYSTEM_TRUSTED_PROXY_HOPS` — explicitly set the authenticated ingress suffix: `1` for direct Cloud Run. An external load balancer requires its actual trusted-hop count and ingress restriction against bypass. Startup fails on Cloud Run if this setting is omitted; topology is never guessed.
+
 Optional Cloud Run environment variables:
 
 - `FIRESTORE_DATABASE_ID` — defaults to `(default)`. Set this if you use a named Firestore database.
@@ -107,7 +111,7 @@ The visualization intentionally separates physical data from display scale:
   oppositions, or conjunctions for a pair/range.
 - `GET /api/catalog/options` lists supported event types and major bodies.
 - `GET /api/validation/jpl/position` fetches a Sun-centered vector from JPL Horizons.
-- `GET /api/validation/jpl/event/{eventId}` validates a cataloged event against
+- `POST /api/validation/jpl/event/{eventId}` validates a cataloged event against
   JPL vectors and stores corrected/validated metadata where supported.
 
 Generated events are stored immediately as provisional catalog entries. When
@@ -117,6 +121,46 @@ responses derive display fields by preferring validated values when present, whi
 preserving the original computed values for traceability.
 
 ## Verification
+
+### API safety and operations
+
+Generation/query windows must be increasing and at most 31 years; dates are bounded
+to 1600–3000. Generation has a cooperative 30-second calculation budget. Expensive
+planet-only generation is limited to two concurrent requests, independently of 32 catalog-read,
+16 trajectory, and eight JPL-bound slots (including small-body generation). Only admitted requests consume the per-client
+minute quotas (60 generation / 120 JPL-bound / 600 reads); a high 6,000/minute
+instance backstop and a bounded 4,096-client table protect memory. Deploy edge
+quotas and cap Cloud Run instances for a deployment-wide cost budget. Size Cloud
+Run concurrency to leave capacity for static files and health checks (at least 64).
+
+Direct local deployments ignore forwarded headers. Direct Cloud Run ingress
+(`K_SERVICE` present) requires an explicit `SOLAR_SYSTEM_TRUSTED_PROXY_HOPS` setting:
+1 for direct ingress; the verified trusted suffix length for other topologies.
+Omitting it fails startup instead of silently collapsing visitors into one proxy quota.
+IPv6 addresses share /64 quotas; malformed chains and a full client table use tight
+shared buckets rather than unbounded admission. Multiple forwarded-header lines are combined.
+Never enable it on directly reachable untrusted ingress. Behind an external Google
+load balancer, verify the appended chain: its last hop is the load balancer, not
+the visitor ([Google's header documentation](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
+Test two actual visitor IPs through your deployed ingress before increasing
+traffic; do not assume a fixed chain after changing proxies. Use an edge quota if
+the ingress cannot provide an authenticated client address.
+
+PRs #31–#37 are stacked. Retarget each next PR to `main` **after** its predecessor
+merges, then verify the remaining diff; do not merge it into a stale feature
+branch. Every main merge deploys: coordinate a maintenance rollout, index
+migration and worker scheduling before restoring traffic. Do not deploy
+intermediate layers or enable traffic without their documented prerequisites.
+
+Administrative `/api/validation/**` endpoints are disabled unless
+`SOLAR_SYSTEM_ADMIN_TOKEN` contains at least 32 characters. Send it as a Bearer
+token over HTTPS, never in a URL or frontend configuration. Event revalidation is
+now POST, not GET. Store this secret in Secret Manager and rotate it as needed.
+Do not expose the token in browser clients. Public catalog reads require no login.
+
+Normal Spring tests inject explicitly synthetic small-body orbits and a JPL client
+that throws on unexpected calls. These test catalog behavior, not ephemeris
+accuracy; the opt-in live integration profile remains separate.
 
 ```bash
 npm run build

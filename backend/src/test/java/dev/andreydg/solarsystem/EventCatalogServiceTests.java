@@ -21,6 +21,7 @@ import org.springframework.boot.test.context.SpringBootTest;
     "solar-system.trajectories.cache-dir=../data/trajectories",
     "solar-system.trajectories.refresh-from-jpl=false"
 })
+@org.springframework.context.annotation.Import(OfflineEphemerisConfiguration.class)
 class EventCatalogServiceTests {
     @Autowired
     private EventCatalogService service;
@@ -64,14 +65,12 @@ class EventCatalogServiceTests {
 
     @Test
     void doesNotGenerateFalseVenusTransitsBefore2117() {
-        Instant from = Instant.parse("2026-01-01T00:00:00Z");
-        Instant to = Instant.parse("2116-12-31T00:00:00Z");
-
-        var generated = service.generate(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to);
-        var queried = service.query(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to);
-
-        assertThat(generated).isEmpty();
-        assertThat(queried).isEmpty();
+        for (int year = 2026; year < 2117; year += 25) {
+            Instant from = Instant.parse(year + "-01-01T00:00:00Z");
+            Instant to = Instant.parse(Math.min(year + 25, 2117) + "-01-01T00:00:00Z");
+            assertThat(service.generate(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to)).isEmpty();
+            assertThat(service.query(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to)).isEmpty();
+        }
     }
 
     @Test

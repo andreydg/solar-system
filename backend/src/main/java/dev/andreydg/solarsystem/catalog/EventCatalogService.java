@@ -55,6 +55,7 @@ public class EventCatalogService {
     }
 
     public List<CatalogEvent> query(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
+        CatalogLimits.checkRange(from, to);
         validateRequest(type, bodyA, bodyB);
         List<CatalogEvent> events = repository.find(type, bodyA, bodyB, from, to).stream()
             .filter(this::isStoredEventValid)
@@ -73,6 +74,13 @@ public class EventCatalogService {
     }
 
     public List<CatalogEvent> generate(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
+        CatalogLimits.checkRange(from, to);
+        try (var budget = GenerationBudget.start()) {
+            return generateWithinBudget(type, bodyA, bodyB, from, to);
+        }
+    }
+
+    private List<CatalogEvent> generateWithinBudget(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
         validateRequest(type, bodyA, bodyB);
         BodyPair pair = BodyPair.of(bodyA, bodyB);
         List<CatalogEvent> events = switch (type) {
@@ -106,6 +114,11 @@ public class EventCatalogService {
         List<CatalogEvent> validEvents = events.stream()
             .filter(this::isStoredEventValid)
             .toList();
+
+        GenerationBudget.check();
+        if (validEvents.size() > 1000) {
+            throw new IllegalArgumentException("Too many events; choose a smaller date window");
+        }
 
         List<CatalogEvent> existingEvents = repository.find(type, bodyA, bodyB, from, to);
         Map<String, CatalogEvent> existingById = existingEvents.stream()

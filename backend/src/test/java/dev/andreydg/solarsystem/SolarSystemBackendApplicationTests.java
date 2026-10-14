@@ -7,6 +7,7 @@ import org.springframework.boot.test.context.SpringBootTest;
     "solar-system.storage=in-memory",
     "solar-system.jpl.async-validation-enabled=false"
 })
+@org.springframework.context.annotation.Import(OfflineEphemerisConfiguration.class)
 class SolarSystemBackendApplicationTests {
 
     @Test

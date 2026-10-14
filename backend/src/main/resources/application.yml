@@ -3,6 +3,10 @@ server:
   shutdown: graceful
 
 spring:
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
   application:
     name: solar-system-backend
   threads:
@@ -23,6 +27,8 @@ management:
       show-details: never
 
 solar-system:
+  trusted-proxy-hops: ${SOLAR_SYSTEM_TRUSTED_PROXY_HOPS:-1}
+  admin-token: ${SOLAR_SYSTEM_ADMIN_TOKEN:}
   storage: ${SOLAR_SYSTEM_STORAGE:firestore}
   firestore:
     collection: events
