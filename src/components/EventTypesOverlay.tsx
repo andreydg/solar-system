@@ -39,8 +39,10 @@ export default function EventTypesOverlay({ selectedType, onClose }: EventTypesO
         </header>
 
         <p className="event-types-intro">
-          Choose an event type in the Events panel, then step through occurrences up to 1,000 years
-          out. Every event's time and geometry is refined and validated against NASA JPL Horizons.
+          Choose an event type, then step through occurrences within 1600–2999 (up to 1,000 years per search).
+          Results start as provisional estimates. Only a “JPL geometry checked” result has passed
+          event-specific geometry and timing checks against NASA JPL Horizons. Refinement uses a
+          5-minute grid; brightness remains modeled, and these are not local visibility predictions.
         </p>
 
         <div className="validated-events-scroll">

@@ -19,7 +19,9 @@ public record CatalogQuery(EventType type, BodyId bodyA, BodyId bodyB, Instant f
         return descending ? order.reversed() : order;
     }
     public boolean matches(CatalogEvent event) {
-        return (type == null || event.type() == type)
+        return event.algorithmVersion() == CatalogEvent.CURRENT_ALGORITHM_VERSION
+            && event.validationStatus() != ValidationStatus.FAILED
+            && (type == null || event.type() == type)
             && (!validatedOnly || event.validationStatus() == ValidationStatus.VALIDATED)
             && involves(event, bodyA) && involves(event, bodyB)
             && !event.displayTimeUtc().isBefore(from) && !event.displayTimeUtc().isAfter(to);

@@ -29,7 +29,7 @@ class JplValidationServiceTests {
     private final JplHorizonsClient horizonsClient = mock(JplHorizonsClient.class);
     private final EventCatalogService catalogService = mock(EventCatalogService.class);
     private final JplValidationService service =
-        new JplValidationService(catalogService, horizonsClient, jplProperties(false));
+        new JplValidationService(catalogService, horizonsClient);
 
     private static JplProperties jplProperties(boolean asyncEnabled) {
         return new JplProperties("http://example", asyncEnabled, 2, 3, 1);
@@ -73,7 +73,7 @@ class JplValidationServiceTests {
             .vectors(eq(BodyId.EARTH), any(), any(), step.capture());
         // 6h coarse / 1h refined steps must be expressed in minutes, matching the working "Nm" form.
         assertThat(step.getAllValues()).allSatisfy(value -> assertThat(value).matches("\\d+m"));
-        assertThat(step.getAllValues()).contains("360m", "60m");
+        assertThat(step.getAllValues()).contains("360m", "5m");
     }
 
     private void stubSweep(BodyId body, java.util.function.Function<Instant, Vector3Au> positionAt) {

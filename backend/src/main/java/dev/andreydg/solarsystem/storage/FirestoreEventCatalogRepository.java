@@ -105,9 +105,10 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
     public CatalogPage search(CatalogQuery criteria) {
         try {
             requireIndexedSchema();
-            Query query = firestore.collection(collection);
+            Query query = firestore.collection(collection).whereEqualTo("algorithmVersion", CatalogEvent.CURRENT_ALGORITHM_VERSION);
             if (criteria.type() != null) query = query.whereEqualTo("type", criteria.type().apiValue());
             if (criteria.validatedOnly()) query = query.whereEqualTo("validationStatus", ValidationStatus.VALIDATED.storedValue());
+            else query = query.whereIn("validationStatus", List.of("pending", "validated", "unavailable"));
             if (criteria.bodyA() != null && criteria.bodyB() != null) {
                 query = query.whereEqualTo("pairKey", CatalogQuery.pairKey(criteria.bodyA(), criteria.bodyB()));
             } else if (criteria.bodyA() != null || criteria.bodyB() != null) {
@@ -161,7 +162,7 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
     private void requireIndexedSchema() throws InterruptedException, ExecutionException {
         if (!indexedSchemaReady) {
             var metadata = firestore.collection("_catalogMetadata").document(collection).get().get();
-            if (!Boolean.TRUE.equals(metadata.getBoolean("indexedQueriesReady"))) {
+            if (!Boolean.TRUE.equals(metadata.getBoolean("indexedQueriesReady")) || !Long.valueOf(2).equals(metadata.getLong("readSchemaVersion"))) {
                 throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
                     "Catalog index migration required; see the deployment runbook");
             }
@@ -185,7 +186,8 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
     static Map<String, Object> indexFields(CatalogEvent event) {
         return Map.of("displayTime", timestamp(event.displayTimeUtc()),
             "pairKey", CatalogQuery.pairKey(event.bodyA(), event.bodyB()),
-            "bodies", List.of(event.bodyA().apiValue(), event.bodyB().apiValue()), "readSchemaVersion", 1L);
+            "bodies", List.of(event.bodyA().apiValue(), event.bodyB().apiValue()), "readSchemaVersion", 2L,
+            "algorithmVersion", (long) event.algorithmVersion());
     }
 
     static Map<String, Object> toDocument(CatalogEvent event) {
@@ -239,7 +241,8 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
             Instant.parse((String) document.get("generatedAtUtc")),
             parseOptionalInstant(document.get("jplCheckedAtUtc")),
             (Double) document.get("jplDeltaKm"),
-            (String) document.get("jplRawSummary")
+            (String) document.get("jplRawSummary"),
+            ((Number) document.getOrDefault("algorithmVersion", 0)).intValue()
         );
     }
 

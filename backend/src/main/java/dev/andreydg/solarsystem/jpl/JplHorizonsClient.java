@@ -28,7 +28,7 @@ import org.springframework.web.client.RestClient;
 @Component
 public class JplHorizonsClient {
     private static final DateTimeFormatter HORIZONS_TIME_FORMAT = DateTimeFormatter
-        .ofPattern("yyyy-MM-dd HH:mm")
+        .ofPattern("yyyy-MM-dd HH:mm:ss")
         .withZone(ZoneOffset.UTC);
     private static final DateTimeFormatter HORIZONS_ROW_TIME_FORMAT = new DateTimeFormatterBuilder()
         .parseCaseInsensitive()
@@ -87,6 +87,10 @@ public class JplHorizonsClient {
             "REF_SYSTEM", quote("ICRF"),
             "REF_PLANE", quote("ECLIPTIC"),
             "EPHEM_TYPE", quote("VECTORS"),
+            "TIME_TYPE", quote("UT"),
+            "CAL_TYPE", quote("GREGORIAN"),
+            "TIME_DIGITS", quote("FRACSEC"),
+            "VEC_CORR", quote("NONE"),
             "VEC_TABLE", quote("2"),
             "OUT_UNITS", quote("AU-D"),
             "CSV_FORMAT", quote("YES"),
@@ -190,7 +194,7 @@ public class JplHorizonsClient {
 
     private static void validateResponse(String response) {
         if (response.contains("No ephemeris")) {
-            throw new JplHorizonsException(extractHorizonsMessage(response));
+            throw new JplCoverageException(extractHorizonsMessage(response));
         }
 
         if (response.contains("Matching small-bodies:") || response.contains("To SELECT, enter record")) {

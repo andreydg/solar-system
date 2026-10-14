@@ -30,7 +30,8 @@ public record EventDto(
     String generatedAtUtc,
     String jplCheckedAtUtc,
     Double jplDeltaKm,
-    String jplRawSummary
+    String jplRawSummary,
+    int algorithmVersion
 ) {
     public static EventDto from(CatalogEvent event) {
         return new EventDto(
@@ -60,7 +61,8 @@ public record EventDto(
             event.generatedAtUtc().toString(),
             event.jplCheckedAtUtc() == null ? null : event.jplCheckedAtUtc().toString(),
             event.jplDeltaKm(),
-            event.jplRawSummary()
+            event.jplRawSummary(),
+            event.algorithmVersion()
         );
     }
 }

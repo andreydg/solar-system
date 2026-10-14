@@ -5,7 +5,7 @@ import {
   type CatalogEventType,
 } from "../domain/eventTypes";
 import { getValidatedEvents, type CatalogEventResult, type ValidatedEventQuery } from "../lib/eventCatalogApi";
-import { formatDate, formatDistance, formatEventTitle } from "../lib/formatters";
+import { formatDate, formatDistance, formatEventTitle, formatSource } from "../lib/formatters";
 
 type ValidatedEventsOverlayProps = {
   onClose: () => void;
@@ -184,7 +184,7 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
                     </small>
                   ) : null}
                   {event.magnitude !== null ? <small>Magnitude: {event.magnitude.toFixed(2)}</small> : null}
-                  <small>Source: JPL</small>
+                  <small>Source: {formatSource(event.source)}</small>
                 </article>
               ))
             : null}
