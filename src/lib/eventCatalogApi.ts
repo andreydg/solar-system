@@ -52,16 +52,6 @@ export type CatalogEventResult = {
   validationStatus: "pending" | "validated" | "failed" | "unavailable";
 };
 
-export type CatalogOptions = {
-  eventTypes: CatalogEventType[];
-  bodies: BodyId[];
-  notes: string[];
-};
-
-export async function getCatalogOptions(): Promise<CatalogOptions> {
-  return (await fetchJson<CatalogOptions>("/api/catalog/options")).data;
-}
-
 export type ValidatedEventQuery = {
   type?: CatalogEventType;
   bodyA?: BodyId;
@@ -100,10 +90,6 @@ export const SEARCH_HORIZON_YEARS = 1000;
 export const CATALOG_MIN_TIME = new Date("1600-01-01T00:00:00Z");
 export const CATALOG_MAX_TIME = new Date("2999-12-31T23:59:59Z");
 const GENERATE_WINDOW_YEARS = 25;
-
-export function isJplSource(source: string | null | undefined) {
-  return source === "JPL_HORIZONS";
-}
 
 export async function findNextEvent(
   type: CatalogEventType,

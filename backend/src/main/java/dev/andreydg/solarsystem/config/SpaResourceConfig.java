@@ -21,10 +21,18 @@ public class SpaResourceConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        // ResourceHttpRequestHandler sets cache headers only after finding the file.
+        registry.addResourceHandler("/assets/**").addResourceLocations("classpath:/static/assets/")
+            .setCacheControl(org.springframework.http.CacheControl.maxAge(java.time.Duration.ofDays(365)).cachePublic().immutable())
+            .resourceChain(false);
+        registry.addResourceHandler("/textures/**").addResourceLocations("classpath:/static/textures/")
+            .setCacheControl(org.springframework.http.CacheControl.maxAge(java.time.Duration.ofDays(1)).cachePublic())
+            .resourceChain(false);
         // No resolver cache: it keys entries by request path, and every distinct client route
         // resolves to index.html, so anonymous traffic could grow it without bound.
         registry.addResourceHandler("/**")
             .addResourceLocations("classpath:/static/")
+            .setCacheControl(org.springframework.http.CacheControl.noCache())
             .resourceChain(false)
             .addResolver(new SpaPathResourceResolver());
     }

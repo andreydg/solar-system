@@ -12,6 +12,17 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 class ApiGuardFilterTests {
+    @Test void readsHaveTheirOwnLargerBudgetAndDoNotConsumeGenerationCapacity() throws Exception {
+        var filter = new ApiGuardFilter("", Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+        for (int i=0; i<100; i++) {
+            var response = new MockHttpServletResponse();
+            filter.doFilter(new MockHttpServletRequest("GET", "/api/events"), response, (req,res) -> {});
+            assertThat(response.getStatus()).isEqualTo(200);
+        }
+        var response = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest("POST", "/api/events/generate"), response, (req,res) -> {});
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
     private static final String TOKEN = "test-token-that-is-at-least-32-chars";
     @Test void administrativeRoutesFailClosed() throws Exception {
         var response = new MockHttpServletResponse();

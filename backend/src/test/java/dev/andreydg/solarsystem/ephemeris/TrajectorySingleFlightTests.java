@@ -39,7 +39,7 @@ class TrajectorySingleFlightTests {
         var provider = mock(JplEphemerisProvider.class);
         var files = mock(TrajectoryFileStore.class);
         when(files.load(any())).thenReturn(Optional.empty());
-        var service = new SmallBodyTrajectoryService(provider, files, new TrajectoryCacheProperties("/unused", false));
+        var service = new SmallBodyTrajectoryService(provider, files, new TrajectoryCacheProperties("/unused", true));
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var samples = List.of(new JplEphemerisProvider.TrajectorySample(Instant.EPOCH, new Vector3Au(1, 0, 0)));

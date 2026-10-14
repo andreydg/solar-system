@@ -32,7 +32,6 @@ public class OfflineEphemerisConfiguration {
         TrajectoryFileStore store, TrajectoryCacheProperties properties) {
         return new SmallBodyTrajectoryService(provider, store, properties) {
             private final ConcurrentHashMap<BodyId, List<TrajectorySample>> fixtures = new ConcurrentHashMap<>();
-            @Override public void prewarmTrajectories() {}
             @Override public List<TrajectorySample> getTrajectory(BodyId body) {
                 return fixtures.computeIfAbsent(body, key -> {
                     var samples = new ArrayList<TrajectorySample>();

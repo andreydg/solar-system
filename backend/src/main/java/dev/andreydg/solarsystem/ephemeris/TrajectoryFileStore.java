@@ -16,16 +16,28 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class TrajectoryFileStore {
-    static final int FORMAT_VERSION = 2;
+    static final int FORMAT_VERSION = 3;
 
     private static final Logger log = LoggerFactory.getLogger(TrajectoryFileStore.class);
 
     private final TrajectoryCacheProperties properties;
     private final JsonMapper jsonMapper;
 
+    private final java.util.Map<BodyId, List<TrajectorySample>> bundled;
+
+    @org.springframework.beans.factory.annotation.Autowired
     public TrajectoryFileStore(TrajectoryCacheProperties properties, JsonMapper jsonMapper) {
+        this(properties, jsonMapper, TrajectoryFileStore::readBundled);
+    }
+
+    TrajectoryFileStore(TrajectoryCacheProperties properties, JsonMapper jsonMapper,
+                        java.util.function.Function<BodyId, String> resources) {
         this.properties = properties;
         this.jsonMapper = jsonMapper;
+        var snapshots = new java.util.EnumMap<BodyId, List<TrajectorySample>>(BodyId.class);
+        for (var body : List.of(BodyId.CERES, BodyId.VESTA, BodyId.ENCKE, BodyId.HALLEY))
+            snapshots.put(body, parseBundled(body, resources.apply(body)));
+        bundled = java.util.Map.copyOf(snapshots);
     }
 
     public Optional<List<TrajectorySample>> load(BodyId body) {
@@ -53,7 +65,7 @@ public class TrajectoryFileStore {
                 ))
                 .toList();
 
-            if (samples.isEmpty()) {
+            if (!validSamples(samples)) {
                 return Optional.empty();
             }
 
@@ -72,7 +84,7 @@ public class TrajectoryFileStore {
         Instant to,
         Duration step
     ) {
-        if (samples.isEmpty()) {
+        if (!validSamples(samples)) {
             return;
         }
 
@@ -96,11 +108,73 @@ public class TrajectoryFileStore {
 
         try {
             Files.createDirectories(path.getParent());
-            jsonMapper.writerWithDefaultPrettyPrinter().writeValue(path.toFile(), cached);
+            Path temporary = Files.createTempFile(path.getParent(), body.apiValue(), ".tmp");
+            try {
+                jsonMapper.writerWithDefaultPrettyPrinter().writeValue(temporary.toFile(), cached);
+                Files.move(temporary, path, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } finally { Files.deleteIfExists(temporary); }
             log.info("Saved trajectory cache for {} to {} ({} samples)", body.apiValue(), path, samples.size());
         } catch (Exception exception) {
             log.warn("Failed to write trajectory cache for {} to {}: {}", body.apiValue(), path, exception.getMessage());
         }
+    }
+
+    public List<TrajectorySample> loadBundled(BodyId body) {
+        var samples = bundled.get(body);
+        if (samples == null) throw new IllegalArgumentException("No bundled trajectory for " + body);
+        return samples;
+    }
+
+    static String readBundled(BodyId body) {
+        try (var stream = TrajectoryFileStore.class.getResourceAsStream("/trajectories/" + body.apiValue() + "-v1.txt")) {
+            if (stream == null) throw new IllegalStateException("Missing bundled trajectory for " + body);
+            return new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException exception) { throw new IllegalStateException("Cannot read bundled trajectory", exception); }
+    }
+
+    static List<TrajectorySample> parseBundled(BodyId body, String response) {
+        String target = switch (body) {
+            case CERES -> "1 Ceres (A801 AA)";
+            case VESTA -> "4 Vesta (A807 FA)";
+            case ENCKE -> "2P/Encke";
+            case HALLEY -> "1P/Halley";
+            default -> throw new IllegalArgumentException("No bundled trajectory for " + body);
+        };
+        int start = response.indexOf("$SOE");
+        if (start < 0) throw new IllegalStateException("Missing trajectory data");
+        String header = response.substring(0, start);
+        for (String required : List.of(
+            "^Target body name:\\s*" + java.util.regex.Pattern.quote(target) + "\\s+\\{",
+            "^Center body name:\\s*Sun \\(10\\)",
+            "^Center-site name:\\s*BODY CENTER",
+            "^Output units\\s*:\\s*AU-D\\s*$",
+            "^Calendar mode\\s*:\\s*Gregorian\\s*$",
+            "^Output type\\s*:\\s*GEOMETRIC cartesian states\\s*$",
+            "^Reference frame\\s*:\\s*Ecliptic of J2000\\.0\\s*$",
+            "^Start time\\s*:[^\\r\\n]+ UT\\s*$",
+            "^Stop  time\\s*:[^\\r\\n]+ UT\\s*$",
+            "Calendar Date \\(UT \\)")) {
+            if (!java.util.regex.Pattern.compile(required, java.util.regex.Pattern.MULTILINE).matcher(header).find())
+                throw new IllegalStateException("Invalid bundled trajectory metadata for " + body);
+        }
+        var samples = dev.andreydg.solarsystem.jpl.JplHorizonsClient.parseVectors(body, response).stream()
+            .map(vector -> new TrajectorySample(vector.requestedTimeUtc(), vector.positionAu())).toList();
+        if (!validSamples(samples)) throw new IllegalStateException("Invalid bundled trajectory for " + body);
+        return samples;
+    }
+
+    private static boolean validSamples(List<TrajectorySample> samples) {
+        if (samples == null || samples.size() < 2) return false;
+        Instant previous = null;
+        for (var sample : samples) {
+            if (sample.timeUtc() == null || sample.position() == null ||
+                !Double.isFinite(sample.position().x()) || !Double.isFinite(sample.position().y()) ||
+                !Double.isFinite(sample.position().z()) ||
+                (previous != null && !sample.timeUtc().isAfter(previous))) return false;
+            previous = sample.timeUtc();
+        }
+        return true;
     }
 
     public Path pathFor(BodyId body) {

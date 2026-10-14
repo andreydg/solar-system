@@ -1,8 +1,8 @@
 import type { BodyId, BodyPosition, Vec3 } from "../domain/solarSystem";
-import { SMALL_BODY_IDS } from "../domain/solarSystem";
+import { fetchJson } from "./http";
 import type { SmallBodyTrajectory } from "./smallBodyTrajectory";
 
-// The backend's vectors (JPL Horizons, VSOP elements) are J2000 *ecliptic*, while the scene and
+// The backend's vectors (JPL Horizons, Keplerian elements) are J2000 *ecliptic*, while the scene and
 // astronomy-engine's planets are J2000 *equatorial*. The frames differ by a rotation about the
 // equinox (x) axis through the J2000 obliquity: 84381.448″ (IAU 1976), the value Horizons uses to
 // define its ecliptic. (astronomy-engine uses the IAU 2006 84381.406″; 0.04″ apart.)
@@ -33,7 +33,7 @@ type TrajectoryPointResponse = {
   z: number;
 };
 
-export async function getBackendBodyPositions(bodies: BodyId[], time: Date): Promise<BodyPosition[]> {
+export async function getBackendBodyPositions(bodies: BodyId[], time: Date, signal?: AbortSignal): Promise<BodyPosition[]> {
   if (bodies.length === 0) {
     return [];
   }
@@ -43,43 +43,18 @@ export async function getBackendBodyPositions(bodies: BodyId[], time: Date): Pro
     params.append("bodies", body);
   }
 
-  const response = await fetch(`/api/ephemeris/positions?${params.toString()}`);
-  if (!response.ok) {
-    throw new Error(`Ephemeris request failed with ${response.status}`);
-  }
-
-  const payload = (await response.json()) as PositionResponse[];
+  const { data: payload } = await fetchJson<PositionResponse[]>(`/api/ephemeris/positions?${params.toString()}`, { signal });
   return payload.map((entry) => ({
     body: entry.body,
     positionAu: eclipticToEquatorial(entry),
   }));
 }
 
-export async function getBackendBodyTrajectory(body: BodyId): Promise<SmallBodyTrajectory> {
-  const response = await fetch(`/api/ephemeris/trajectory?body=${encodeURIComponent(body)}`);
-  if (!response.ok) {
-    throw new Error(`Trajectory request failed with ${response.status}`);
-  }
-
-  const payload = (await response.json()) as TrajectoryPointResponse[];
+export async function getBackendBodyTrajectory(body: BodyId, signal?: AbortSignal): Promise<SmallBodyTrajectory> {
+  const { data: payload } = await fetchJson<TrajectoryPointResponse[]>(`/api/ephemeris/trajectory?body=${encodeURIComponent(body)}`, { signal });
   const points = payload.map((point) => ({
     time: new Date(point.timeUtc),
     positionAu: eclipticToEquatorial(point),
   }));
   return points.sort((left, right) => left.time.getTime() - right.time.getTime());
-}
-
-export async function prewarmSmallBodyTrajectories(): Promise<Partial<Record<BodyId, SmallBodyTrajectory>>> {
-  const entries = await Promise.all(
-    SMALL_BODY_IDS.map(async (body) => {
-      try {
-        const trajectory = await getBackendBodyTrajectory(body);
-        return [body, trajectory] as const;
-      } catch {
-        return [body, []] as const;
-      }
-    }),
-  );
-
-  return Object.fromEntries(entries);
 }

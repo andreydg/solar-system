@@ -12,29 +12,29 @@
     "test:e2e": "node scripts/package-e2e.mjs && playwright test"
   },
   "dependencies": {
-    "@react-three/drei": "latest",
-    "@react-three/fiber": "latest",
-    "astronomy-engine": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "three": "latest"
+    "@react-three/drei": "10.7.7",
+    "@react-three/fiber": "9.6.1",
+    "astronomy-engine": "2.1.19",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "three": "0.184.0"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.64.0",
-    "@react-three/test-renderer": "^9.1.1",
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "@types/three": "latest",
-    "@vitejs/plugin-react": "latest",
-    "eslint": "^10.5.0",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.2",
-    "globals": "^17.6.0",
-    "typescript": "latest",
-    "typescript-eslint": "^8.61.0",
-    "vite": "latest",
-    "vitest": "^4.1.8"
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.0",
+    "@react-three/test-renderer": "9.1.1",
+    "@types/node": "25.9.3",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@types/three": "0.184.1",
+    "@vitejs/plugin-react": "6.0.2",
+    "eslint": "10.5.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.2",
+    "globals": "17.6.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.61.0",
+    "vite": "8.0.16",
+    "vitest": "4.1.11"
   }
 }

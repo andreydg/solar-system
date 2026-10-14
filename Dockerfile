@@ -23,5 +23,7 @@ FROM eclipse-temurin:21-jre-alpine AS runtime
 ENV PORT=8080
 WORKDIR /app
 COPY --from=backend-build /app/backend/target/solar-system-backend-0.1.0.jar ./app.jar
+RUN addgroup -S solar && adduser -S solar -G solar && chown -R solar:solar /app
+USER solar
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]

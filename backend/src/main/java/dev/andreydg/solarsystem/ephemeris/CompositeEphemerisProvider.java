@@ -11,16 +11,16 @@ import org.springframework.stereotype.Component;
 @Component
 @Primary
 public class CompositeEphemerisProvider implements EphemerisProvider {
-    private final KeplerianEphemerisProvider vsop87aEphemerisProvider;
+    private final KeplerianEphemerisProvider keplerianEphemerisProvider;
     private final JplEphemerisProvider jplEphemerisProvider;
     private final SmallBodyTrajectoryService trajectoryService;
 
     public CompositeEphemerisProvider(
-        KeplerianEphemerisProvider vsop87aEphemerisProvider,
+        KeplerianEphemerisProvider keplerianEphemerisProvider,
         JplEphemerisProvider jplEphemerisProvider,
         SmallBodyTrajectoryService trajectoryService
     ) {
-        this.vsop87aEphemerisProvider = vsop87aEphemerisProvider;
+        this.keplerianEphemerisProvider = keplerianEphemerisProvider;
         this.jplEphemerisProvider = jplEphemerisProvider;
         this.trajectoryService = trajectoryService;
     }
@@ -33,16 +33,16 @@ public class CompositeEphemerisProvider implements EphemerisProvider {
                 .orElseGet(() -> jplEphemerisProvider.heliocentricPosition(body, timeUtc));
         }
 
-        return vsop87aEphemerisProvider.heliocentricPosition(body, timeUtc);
+        return keplerianEphemerisProvider.heliocentricPosition(body, timeUtc);
     }
 
     @Override
     public String source() {
-        return vsop87aEphemerisProvider.source();
+        return keplerianEphemerisProvider.source();
     }
 
     public String sourceFor(BodyId body) {
-        return body.isSmallBody() ? "JPL_TRAJECTORY_APPROX" : vsop87aEphemerisProvider.source();
+        return body.isSmallBody() ? "JPL_TRAJECTORY_APPROX" : keplerianEphemerisProvider.source();
     }
 
     public List<JplEphemerisProvider.HeliocentricDistanceSample> heliocentricDistanceSamples(

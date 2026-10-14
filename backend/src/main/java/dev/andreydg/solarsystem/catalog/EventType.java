@@ -47,8 +47,4 @@ public enum EventType {
             case PERIHELION -> "perihelion";
         };
     }
-
-    public boolean supportsJplValidation() {
-        return true;
-    }
 }
