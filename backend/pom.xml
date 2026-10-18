@@ -20,7 +20,8 @@
     <properties>
         <java.version>21</java.version>
         <google-cloud-bom.version>26.80.0</google-cloud-bom.version>
-        <test.excludedGroups>integration</test.excludedGroups>
+        <test.excludedGroups>integration,firestore</test.excludedGroups>
+        <test.groups></test.groups>
     </properties>
 
     <dependencyManagement>
@@ -81,6 +82,7 @@
                     <!-- Live-network/integration tests are excluded from the default build.
                          Run them with: mvn test -P integration-tests -->
                     <excludedGroups>${test.excludedGroups}</excludedGroups>
+                    <groups>${test.groups}</groups>
                 </configuration>
             </plugin>
         </plugins>
@@ -88,9 +90,16 @@
 
     <profiles>
         <profile>
+            <id>firestore-tests</id>
+            <properties>
+                <test.groups>firestore</test.groups>
+                <test.excludedGroups></test.excludedGroups>
+            </properties>
+        </profile>
+        <profile>
             <id>integration-tests</id>
             <properties>
-                <test.excludedGroups></test.excludedGroups>
+                <test.excludedGroups>firestore</test.excludedGroups>
             </properties>
         </profile>
     </profiles>

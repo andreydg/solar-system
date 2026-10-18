@@ -28,6 +28,7 @@ public class EphemerisController {
     public PositionDto position(@RequestParam String body, @RequestParam String time) {
         BodyId bodyId = BodyId.fromApiValue(body);
         Instant timeUtc = Instant.parse(time);
+        dev.andreydg.solarsystem.catalog.CatalogLimits.checkTime(timeUtc);
         Vector3Au position = bodyId.isSmallBody()
             ? trajectoryService.interpolate(bodyId, timeUtc).orElseGet(() -> ephemerisProvider.heliocentricPosition(bodyId, timeUtc))
             : ephemerisProvider.heliocentricPosition(bodyId, timeUtc);
@@ -43,9 +44,14 @@ public class EphemerisController {
 
     @GetMapping("/api/ephemeris/positions")
     public List<PositionDto> positions(@RequestParam List<String> bodies, @RequestParam String time) {
+        if (bodies.isEmpty() || bodies.size() > BodyId.values().length) {
+            throw new IllegalArgumentException("Choose between 1 and 12 bodies");
+        }
         Instant timeUtc = Instant.parse(time);
+        dev.andreydg.solarsystem.catalog.CatalogLimits.checkTime(timeUtc);
 
         return bodies.stream()
+            .distinct()
             .map(BodyId::fromApiValue)
             .map(bodyId -> {
                 if (bodyId.isSmallBody()) {

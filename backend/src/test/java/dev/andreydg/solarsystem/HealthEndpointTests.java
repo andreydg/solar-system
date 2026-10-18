@@ -17,6 +17,7 @@ import org.springframework.web.client.RestClient;
         "solar-system.trajectories.refresh-from-jpl=false"
     }
 )
+@org.springframework.context.annotation.Import(OfflineEphemerisConfiguration.class)
 class HealthEndpointTests {
 
     @LocalServerPort

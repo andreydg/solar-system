@@ -14,6 +14,7 @@ export default defineConfig({
     // CommonJS, which load a second, CommonJS copy of three (R3F then treats our ES math objects,
     // e.g. a Quaternion prop, as a foreign type) and, when mixed, a second R3F (so drei's hooks
     // can't find the test renderer's canvas). All three must resolve to their ES builds.
+    exclude: ["**/node_modules/**", "**/dist/**", "e2e/**"],
     alias: {
       "@react-three/drei": "@react-three/drei/index.js",
       "@react-three/fiber": "@react-three/fiber/dist/react-three-fiber.esm.js",

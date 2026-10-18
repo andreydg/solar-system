@@ -83,7 +83,7 @@ public class JplEphemerisProvider implements EphemerisProvider {
                     samples.add(new TrajectorySample(vector.requestedTimeUtc(), position));
                 }
             } catch (JplHorizonsException exception) {
-                if (exception.getMessage().contains("No ephemeris")) {
+                if (exception.getMessage().contains("No ephemeris") && !samples.isEmpty()) {
                     break;
                 }
 

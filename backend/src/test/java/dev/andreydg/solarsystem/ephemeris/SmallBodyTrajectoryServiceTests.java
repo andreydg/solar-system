@@ -12,6 +12,63 @@ import org.junit.jupiter.api.Test;
 
 class SmallBodyTrajectoryServiceTests {
     @Test
+    void wholeWindowWithoutEphemerisStaysPermanentAndDoesNotCacheAnEmptyTrajectory() {
+        var client = org.mockito.Mockito.mock(dev.andreydg.solarsystem.jpl.JplHorizonsClient.class);
+        var missing = new dev.andreydg.solarsystem.jpl.JplHorizonsException("No ephemeris for requested window");
+        org.mockito.Mockito.when(client.vectors(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString())).thenThrow(missing);
+        var files = org.mockito.Mockito.mock(TrajectoryFileStore.class);
+        var service = new SmallBodyTrajectoryService(new JplEphemerisProvider(client), files,
+            new dev.andreydg.solarsystem.config.TrajectoryCacheProperties("/unused", true));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.getTrajectory(BodyId.HALLEY))
+            .isSameAs(missing).satisfies(error -> assertThat(((dev.andreydg.solarsystem.jpl.JplHorizonsException) error).isTransient()).isFalse());
+        assertThat(service.isCached(BodyId.HALLEY)).isFalse();
+        org.mockito.Mockito.verifyNoInteractions(files);
+        org.mockito.Mockito.verify(client, org.mockito.Mockito.times(1)).vectors(org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+    }
+
+
+    @Test
+    void laterNoEphemerisPreservesAndCachesTheAvailablePartOfTheTrajectory() {
+        var client = org.mockito.Mockito.mock(dev.andreydg.solarsystem.jpl.JplHorizonsClient.class);
+        var time = Instant.parse("2000-01-01T00:00:00Z");
+        var point = new Vector3Au(1, 2, 3);
+        org.mockito.Mockito.when(client.vectors(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString()))
+            .thenReturn(List.of(new dev.andreydg.solarsystem.jpl.JplVector(BodyId.HALLEY, time, point, "", "")))
+            .thenThrow(new dev.andreydg.solarsystem.jpl.JplHorizonsException("No ephemeris for requested window"));
+        var files = org.mockito.Mockito.mock(TrajectoryFileStore.class);
+        var service = new SmallBodyTrajectoryService(new JplEphemerisProvider(client), files,
+            new dev.andreydg.solarsystem.config.TrajectoryCacheProperties("/unused", true));
+        var trajectory = org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> service.getTrajectory(BodyId.HALLEY));
+        assertThat(trajectory).containsExactly(new TrajectorySample(time, point));
+        assertThat(service.isCached(BodyId.HALLEY)).isTrue();
+        assertThat(service.getTrajectory(BodyId.HALLEY)).isSameAs(trajectory);
+        org.mockito.Mockito.verify(client, org.mockito.Mockito.times(2)).vectors(org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString());
+        org.mockito.Mockito.verify(files).save(org.mockito.ArgumentMatchers.eq(BodyId.HALLEY),
+            org.mockito.ArgumentMatchers.eq(trajectory), org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void genuinelyEmptyTablesRemainTransientAndAreNotCachedOrSaved() {
+        var client = org.mockito.Mockito.mock(dev.andreydg.solarsystem.jpl.JplHorizonsClient.class);
+        org.mockito.Mockito.when(client.vectors(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyString())).thenReturn(List.of());
+        var files = org.mockito.Mockito.mock(TrajectoryFileStore.class);
+        var service = new SmallBodyTrajectoryService(new JplEphemerisProvider(client), files,
+            new dev.andreydg.solarsystem.config.TrajectoryCacheProperties("/unused", true));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.getTrajectory(BodyId.HALLEY))
+            .isInstanceOf(dev.andreydg.solarsystem.jpl.JplHorizonsException.class)
+            .hasMessage("Empty trajectory")
+            .satisfies(error -> assertThat(((dev.andreydg.solarsystem.jpl.JplHorizonsException) error).isTransient()).isTrue());
+        assertThat(service.isCached(BodyId.HALLEY)).isFalse();
+        org.mockito.Mockito.verifyNoInteractions(files);
+    }
+
+    @Test
     void mapsEnckeDatesOutsideCacheOntoOrbitPhase() {
         List<TrajectorySample> trajectory = List.of(
             new TrajectorySample(Instant.parse("2024-05-09T00:00:00Z"), new Vector3Au(1.0, 0.0, 0.0)),
