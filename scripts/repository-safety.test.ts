@@ -195,3 +195,20 @@ it("trajectory retry documentation distinguishes rate limits from other failures
   expect(readme).toContain("counted independently of HTTP 429 waits; interleaving rate limits never resets that counter.");
   expect(readme).toContain("45-second timeout");
 });
+
+it("history pause comments distinguish synthetic ordering from real browser navigation", () => {
+  expect(source("src/App.tsx")).toContain("Defence in depth: React normally flushes popstate before the next frame");
+  expect(source("e2e/explorer.spec.ts")).toContain("defence-in-depth pause holds under synthetic popstate frame ordering");
+  expect(source("e2e/explorer.spec.ts")).toContain("Synthetic ordering, not a real browser race");
+  expect(source("README.md")).toContain("not a claim of a real browser race");
+});
+
+it("history documentation excludes the cancellation notice but preserves real statuses", () => {
+  const readme = source("README.md").replace(/\s+/g, " ");
+  expect(readme).toContain("The transient “Search cancelled” notice is never saved in history");
+  expect(readme).toContain("even when sharing again");
+  expect(readme).toContain("real completion and error statuses are saved and restored by Back/Forward");
+  expect(readme).toContain("Browser Back/Forward starts a fresh event-navigation history seeded by the restored event");
+  expect(readme).toContain("share URLs do not serialize the event sequence");
+  expect(readme).toContain("when the browser entry matches the shared URL.");
+});

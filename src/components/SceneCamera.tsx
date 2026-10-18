@@ -81,14 +81,18 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
       const second = positions.find((position) => position.body === highlightedBodies[1]);
       if (first && second) {
         framedEvent.current = highlightedBodies;
-        shownFocus.current = focusedBody;
-        request.current = {
-          kind: "pair",
-          points: [toScenePoint(first.positionAu), toScenePoint(second.positionAu)],
-          // Event bodies are drawn highlighted (enlarged); leave room for the bigger of the two.
-          radius: Math.max(...highlightedBodies.map((body) => renderedRadius(body, true))),
-        };
-        return;
+        // Restoring history may supply a new event object AND an explicit body focus.
+        // Focus wins; remember this event so it cannot re-frame on the next render.
+        if (!focusedBody) {
+          shownFocus.current = null;
+          request.current = {
+            kind: "pair",
+            points: [toScenePoint(first.positionAu), toScenePoint(second.positionAu)],
+            // Event bodies are drawn highlighted (enlarged); leave room for the bigger of the two.
+            radius: Math.max(...highlightedBodies.map((body) => renderedRadius(body, true))),
+          };
+          return;
+        }
       }
     }
 

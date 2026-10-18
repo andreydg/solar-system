@@ -336,6 +336,34 @@ whole group. Simulation state updates at most ten times/sec, pauses work in hidd
 tabs, and starts paused for reduced-motion users. Texture and hashed-asset HTTP
 caching are explicit; the runtime container runs as an unprivileged user.
 
+## Sharing and organic discovery
+
+Share view preserves the current draft (including a loaded event) in browser history before its first share. Back/Forward restore snapshots; hash-only navigation leaves the scene alone. Editing a shared field clears the selectable link and removes its stale query string once, not on every animation frame. Choose Share view again to publish the updated snapshot. Sky tracks use the conventional east-left orientation.
+
+Share view copies a versioned URL and also displays a selectable link if clipboard
+access is unavailable. It preserves UTC time, body visibility, search criteria and
+focused body, opens paused, and supports browser back/forward. It does not preserve
+an arbitrary camera rotation or assert that a displayed date is validated.
+Explain this date captures an on-demand snapshot, with a geometric Earth-view
+track for major planets. It does not recalculate that chart every animation frame.
+
+`npm run build` also pre-renders three human-written guides and a sitemap; robots
+and page/social metadata are served as real production resources. Guides load
+without JavaScript or any catalog request. Shared query URLs canonicalize to the
+home page, so they do not create thousands of thin indexed event pages.
+
+Before paid acquisition (operator checklist, not automated by this PR):
+
+1. Complete the index/schema migration and worker-trigger rollout above; verify
+   latency, 429/5xx rates, worker backlog age and Firestore cost at a capped load.
+2. After deployment, verify guide URLs and the sitemap in Search Console.
+3. Share a few genuinely useful examples with astronomy educators/clubs, asking
+   for feedback before broad outreach. Pair a retrograde sky track with its 3D
+   view rather than advertising precision the model does not provide.
+4. Measure guide-to-explorer visits and repeat usage using an explicitly approved,
+   privacy-conscious analytics setup. No analytics vendor, tracking cookie,
+   outbound promotion, or cloud resource is enabled by this code.
+
 ## Catalog rollback and retries
 
 After **any** rollback to an older writer, drain/stop that revision, rerun the
@@ -455,6 +483,29 @@ A clock tick during a playback commit checks scene positions before passive effe
 Malformed bundled coordinates fail startup with the body name and original parser
 cause preserved. Long-lived asset cache headers are
 set only after successful resource resolution; missing assets remain no-store.
+
+### Share and history consistency
+
+Share synchronously pauses the live clock before copying its timestamp. Back and
+Forward restore an original share's URL along with its view, while a reload of a
+bare URL ignores stale shared history state. Explicit body focus wins over a
+restored event's pair framing. In-progress search messages are not stored as
+finished history snapshots. Share cancels any pending Find immediately and shows
+“Search cancelled”, so a late response cannot replace the snapshot or strip the
+copied link. The transient “Search cancelled” notice is never saved in history,
+even when sharing again; real completion and error statuses are saved and restored
+by Back/Forward. React normally flushes popstate before the next frame. An explicit
+clock pause remains as defence in depth, tested with synthetic frame ordering
+inside the popstate listener, not a claim of a real browser race. Separate browser
+tests assert the live clock via Share after real Back and Forward navigation, not
+just the date field.
+Closing a restored body focus returns to the overview without re-framing its event.
+Share keys do not require a secure-context crypto API.
+Browser Back/Forward starts a fresh event-navigation history seeded by the restored
+event; share URLs do not serialize the event sequence.
+Reload and cross-document Back restore the saved event, status and replay seed only
+when the browser entry matches the shared URL. Opening a shared URL in a new tab
+carries view controls, not a saved event.
 
 ## Credits
 

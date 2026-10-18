@@ -582,3 +582,9 @@ small {
     border-left: 0;
   }
 }
+.event-explainer { margin-top: 1rem; border: 1px solid var(--border); padding: 1rem; border-radius: var(--radius-sm); }
+.event-explainer svg { width: 100%; height: auto; }
+.event-explainer p { line-height: 1.6; }
+.explanation-note { font-size: .78rem; color: var(--text-soft); line-height: 1.6; }
+.control-panel a { color: var(--accent-bright); }
+.control-panel input[readonly] { width: 100%; min-width: 0; padding: .6rem; background: var(--bg); color: var(--text); border: 1px solid var(--border); }

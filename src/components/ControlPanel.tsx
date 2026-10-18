@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { parseUtcInput } from "../lib/timeUtils";
+import EventExplainer from "./EventExplainer";
 import ValidatedEventsOverlay from "./ValidatedEventsOverlay";
 import EventTypesOverlay from "./EventTypesOverlay";
 import {
@@ -18,6 +19,8 @@ import type { CSSProperties } from "react";
 
 type ControlPanelProps = {
   currentTime: Date;
+  onShare: () => void;
+  sharedLink: string | null;
   eventBodyA: BodyId;
   eventBodyB: BodyId;
   eventPairIsValid: boolean;
@@ -64,6 +67,8 @@ type EventResultView = Partial<CatalogMetadata> & {
 
 export default function ControlPanel({
   currentTime,
+  onShare,
+  sharedLink,
   eventBodyA,
   eventBodyB,
   eventPairIsValid,
@@ -86,6 +91,7 @@ export default function ControlPanel({
   onSpeedChange,
   onToggleBody,
 }: ControlPanelProps) {
+  const [explanation, setExplanation] = useState<{ time: Date; type: CatalogEventType; body: BodyId } | null>(null);
   const [showEventHelp, setShowEventHelp] = useState(false);
   const [showValidatedEvents, setShowValidatedEvents] = useState(false);
   const [dateDraft, setDateDraft] = useState<string | null>(null);
@@ -294,6 +300,19 @@ export default function ControlPanel({
         </div>
       </section>
 
+      <section className="control-section">
+        <h2>Explore &amp; share</h2>
+        <div className="button-row">
+          <button type="button" disabled={!eventPairIsValid} onClick={onShare}>Share view</button>
+          <button type="button" onClick={() => setExplanation({ time: currentTime, type: eventType, body: eventBodyB === "earth" ? eventBodyA : eventBodyB })}>Explain this date</button>
+        </div>
+        {sharedLink ? <label className="field"><span>Share link (date, bodies, and focus)</span>
+          <input readOnly value={sharedLink} onFocus={event => event.target.select()} />
+        </label> : null}
+        <p className="explanation-note">Shared views open paused. Links preserve the scene and search criteria, not a claim that an event is validated.</p>
+        <nav aria-label="Learn about planetary events"><a href="/learn/retrograde.html">Why do planets appear to move backward?</a></nav>
+        {explanation ? <><EventExplainer {...explanation} /><button type="button" onClick={() => setExplanation(null)}>Close explanation</button></> : null}
+      </section>
       {showEventHelp ? (
         <EventTypesOverlay selectedType={eventType} onClose={() => setShowEventHelp(false)} />
       ) : null}
