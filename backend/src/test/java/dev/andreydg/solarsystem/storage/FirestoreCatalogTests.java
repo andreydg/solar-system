@@ -27,6 +27,25 @@ class FirestoreCatalogTests {
     }
     @AfterEach void close() throws Exception { if (firestore != null) firestore.close(); }
 
+    @Test void obsoleteOppositionRecordsRemainArchivedButCannotLeakIntoCurrentSearches() throws Exception {
+        var old = new HashMap<>(FirestoreEventCatalogRepository.toDocument(event("old-polluted-opposition", TIME, BodyId.MARS)));
+        old.remove("algorithmVersion");
+        old.put("computedAngleDeg", 0.0);
+        firestore.collection(collection).document("old-polluted-opposition").set(old).get();
+        repository.upsert(event("current", TIME, BodyId.MARS));
+        new FirestoreIndexMigration(firestore, collection).run(true);
+        assertThat(repository.search(query(false, 10, null)).events()).extracting(CatalogEvent::id).containsExactly("current");
+        assertThat(repository.findById("old-polluted-opposition")).isPresent();
+        assertThat(new FirestoreValidationMigration(firestore, collection).run(true)).isZero();
+    }
+
+    @Test void regenerationDoesNotReturnARejectedEventAsFreshProvisionalData() throws Exception {
+        var rejected = event("rejected", TIME, BodyId.MARS).failed("Geometry rejected");
+        repository.upsert(rejected);
+        assertThat(repository.createMissing(List.of(rejected.pending())).stored().getFirst().validationStatus()).isEqualTo(ValidationStatus.FAILED);
+        assertThat(firestore.collection(collection + "-validation").get().get().size()).isZero();
+    }
+
     @Test void durableJobsSurviveRepositoryRecreationAndFenceExpiredWorkers() throws Exception {
         var event = event("pending", TIME, BodyId.MARS).pending();
         repository.createMissing(List.of(event));
@@ -131,7 +150,7 @@ class FirestoreCatalogTests {
         repository.upsert(event("c", TIME, BodyId.MARS));
         assertThat(new FirestoreIndexMigration(firestore, collection).run(true).ready()).isFalse();
         // Simulate corruption after an earlier successful activation.
-        firestore.collection("_catalogMetadata").document(collection).set(Map.of("indexedQueriesReady", true)).get();
+        firestore.collection("_catalogMetadata").document(collection).set(Map.of("indexedQueriesReady", true, "readSchemaVersion", 2)).get();
         var first = repository.search(query(false, 2, null));
         assertThat(first.events()).extracting(CatalogEvent::id).containsExactly("a", "c");
         assertThat(first.nextCursor()).isNull();
@@ -243,7 +262,7 @@ class FirestoreCatalogTests {
         batch.commit().get();
         repository.upsert(event("m-1", TIME, BodyId.MARS));
         repository.upsert(event("m-2", TIME, BodyId.MARS));
-        firestore.collection("_catalogMetadata").document(collection).set(Map.of("indexedQueriesReady", true)).get();
+        firestore.collection("_catalogMetadata").document(collection).set(Map.of("indexedQueriesReady", true, "readSchemaVersion", 2)).get();
         for (boolean descending : List.of(false, true)) {
             var page = repository.search(query(descending, 1, null));
             assertThat(page.events()).extracting(CatalogEvent::id).containsExactly(descending ? "m-2" : "m-1");
@@ -265,7 +284,7 @@ class FirestoreCatalogTests {
             }
             batch.commit().get();
         }
-        firestore.collection("_catalogMetadata").document(collection).set(Map.of("indexedQueriesReady", true)).get();
+        firestore.collection("_catalogMetadata").document(collection).set(Map.of("indexedQueriesReady", true, "readSchemaVersion", 2)).get();
         assertThatThrownBy(() -> repository.search(query(false, 1, null)))
             .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
             .hasMessageContaining("503").hasMessageContaining("operator repair required");
@@ -418,7 +437,7 @@ class FirestoreCatalogTests {
 
     @Test void concurrentGeneratorsCreateEachFirestoreJobOnce() throws Exception {
         var provider = new dev.andreydg.solarsystem.ephemeris.CompositeEphemerisProvider(
-            new dev.andreydg.solarsystem.ephemeris.Vsop87aEphemerisProvider(), null, null);
+            new dev.andreydg.solarsystem.ephemeris.KeplerianEphemerisProvider(), null, null);
         var service = new EventCatalogService(provider, repository);
         var barrier = new java.util.concurrent.CyclicBarrier(4);
         try (var executor = java.util.concurrent.Executors.newFixedThreadPool(4)) {
@@ -536,7 +555,7 @@ class FirestoreCatalogTests {
         return output.getAll().lines().filter(line -> line.contains("WARN") && line.contains("FirestoreEventCatalogRepository")).toList();
     }
     private void activateIndex() throws Exception {
-        firestore.collection("_catalogMetadata").document(collection).set(Map.of("indexedQueriesReady", true, "readSchemaVersion", 1L)).get();
+        firestore.collection("_catalogMetadata").document(collection).set(Map.of("indexedQueriesReady", true, "readSchemaVersion", 2L)).get();
     }
     private void seedMalformed(int count) throws Exception {
         for (int start = 0; start < count; start += 450) {
@@ -820,6 +839,36 @@ class FirestoreCatalogTests {
         assertThat(ref.get().get().contains("lastError")).isFalse();
     }
 
+    @Test void outageExhaustionRemainsRecoverableForPendingAndPreviouslyRejectedEvents() throws Exception {
+        for (boolean rejected : List.of(false, true)) {
+            String id = rejected ? "outage-rejected" : "outage-pending";
+            var original = rejected ? pending(id).failed("Geometry rejected") : pending(id);
+            repository.upsert(original);
+            var jobs = jobs();
+            jobs.enqueue(id, Instant.now().minusSeconds(1));
+            firestore.collection(collection + "-validation").document(id).update("attempts", 11L).get();
+            var validation = org.mockito.Mockito.mock(dev.andreydg.solarsystem.jpl.JplValidationService.class);
+            org.mockito.Mockito.when(validation.validateEvent(id))
+                .thenThrow(new dev.andreydg.solarsystem.jpl.JplHorizonsException("private upstream outage", true));
+            assertThat(worker(jobs, validation).drainOne()).isEqualTo("failed");
+            var stored = repository.findById(id).orElseThrow();
+            if (rejected) assertThat(stored).isEqualTo(original);
+            else {
+                assertThat(stored.validationStatus()).isEqualTo(ValidationStatus.UNAVAILABLE);
+                assertThat(stored.jplRawSummary()).isEqualTo(
+                    "Retry budget exhausted: JPL is temporarily unavailable. An administrator can retry this event.");
+            }
+            var diagnostic = firestore.collection(collection + "-validation").document(id).get().get();
+            assertThat(diagnostic.getBoolean("retryExhausted")).isTrue();
+            assertThat(diagnostic.getString("lastError")).contains("private upstream outage");
+            assertThat(jobs.requeueExhausted(null, 100, Instant.now()).queued()).isEqualTo(1);
+            var lease = jobs.claim(Instant.now(), java.time.Duration.ofMinutes(10)).orElseThrow();
+            assertThat(lease.eventId()).isEqualTo(id);
+            assertThat(lease.attempt()).isEqualTo(1);
+            jobs.abandon(lease, "test consumed recovered job", Instant.now());
+        }
+    }
+
     private FirestoreValidationJobs jobs() {
         return new FirestoreValidationJobs(firestore, new FirestoreProperties(collection, "(default)", System.getenv("FIRESTORE_EMULATOR_HOST")));
     }
@@ -832,6 +881,16 @@ class FirestoreCatalogTests {
         return new CatalogEvent(id, EventType.OPPOSITION, BodyId.EARTH, BodyId.MARS, TIME, null, 180.0, null,
             "TEST", null, null, null, null, null, ValidationStatus.PENDING,
             TIME.minusSeconds(100), TIME.plusSeconds(200), TIME, null, null, null);
+    }
+
+    @Test void unavailableCoverageIsReturnedByIndexedSearchButNotTheValidatedList() throws Exception {
+        var event = event("no-coverage", TIME, BodyId.MARS).pending().unavailable("No ephemeris after 2500");
+        repository.upsert(event);
+        new FirestoreIndexMigration(firestore, collection).run(true);
+        var query = new CatalogQuery(EventType.OPPOSITION, BodyId.EARTH, BodyId.MARS,
+            TIME.minusSeconds(10), TIME.plusSeconds(10), false, false, 10, null);
+        assertThat(repository.search(query).events()).containsExactly(event);
+        assertThat(repository.search(query(false, 10, null)).events()).isEmpty();
     }
 
     private CatalogQuery query(boolean descending, int limit, String cursor) {

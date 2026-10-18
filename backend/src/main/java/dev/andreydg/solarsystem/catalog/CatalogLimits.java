@@ -6,13 +6,13 @@ import java.time.Instant;
 /** Resource limits are enforced below HTTP so internal callers cannot bypass them. */
 public final class CatalogLimits {
     public static final Instant MIN_TIME = Instant.parse("1600-01-01T00:00:00Z");
-    public static final Instant MAX_TIME = Instant.parse("3001-01-01T00:00:00Z");
+    public static final Instant MAX_TIME = Instant.parse("3000-01-01T00:00:00Z");
     public static final Duration MAX_WINDOW = Duration.ofDays(31 * 366L);
     private CatalogLimits() {}
 
     public static void checkTime(Instant time) {
         if (time == null || time.isBefore(MIN_TIME) || !time.isBefore(MAX_TIME)) {
-            throw new IllegalArgumentException("Date must be within 1600–3000");
+            throw new IllegalArgumentException("Date must be within 1600–2999");
         }
     }
 

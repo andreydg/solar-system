@@ -86,6 +86,7 @@ public class InMemoryEventCatalogRepository implements EventCatalogRepository, V
         if (!lease.eventId().equals(result.id())) throw new IllegalArgumentException("Lease/event mismatch");
         if (!owns(lease, now)) return false;
         events.put(result.id(), result);
+        if (result.jplRawSummary() != null && result.jplRawSummary().startsWith("Retry budget exhausted")) exhausted.add(result.id());
         jobs.put(lease.eventId(), new Job(lease.attempt(), null, null, 0, ValidationJobs.privateDiagnostic(privateError)));
         activeLease = null;
         leaseUntil = Instant.MIN;
@@ -108,6 +109,7 @@ public class InMemoryEventCatalogRepository implements EventCatalogRepository, V
     @Override public synchronized void enqueue(String id, Instant now) {
         var event = events.get(id);
         if (event == null) throw new IllegalArgumentException("Catalog event not found");
+        if (event.algorithmVersion() != CatalogEvent.CURRENT_ALGORITHM_VERSION) throw new IllegalArgumentException("Obsolete catalog algorithm; regenerate the event instead");
         if (activeLease != null && activeLease.eventId().equals(id) && leaseUntil.isAfter(now)) {
             throw new IllegalArgumentException("Validation is already running");
         }

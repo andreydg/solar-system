@@ -34,6 +34,7 @@ public class OfflineEphemerisConfiguration {
             private final ConcurrentHashMap<BodyId, List<TrajectorySample>> fixtures = new ConcurrentHashMap<>();
             @Override public void prewarmTrajectories() {}
             @Override public List<TrajectorySample> getTrajectory(BodyId body) {
+                if (!body.isSmallBody()) return super.getTrajectory(body);
                 return fixtures.computeIfAbsent(body, key -> {
                     var samples = new ArrayList<TrajectorySample>();
                     long period = Math.round(key.typicalOrbitDays());

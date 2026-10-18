@@ -100,8 +100,8 @@ class EventCatalogCombinationTests {
                 EventType.PERIHELION,
                 BodyId.EARTH,
                 smallBody,
-                SHORT_RANGE_FROM,
-                SHORT_RANGE_TO
+                Instant.parse("2025-01-01T00:00:00Z"),
+                Instant.parse("2027-01-01T00:00:00Z")
             );
 
             assertThat(generated).isNotEmpty();

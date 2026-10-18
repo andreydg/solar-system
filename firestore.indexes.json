@@ -5,77 +5,9 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "pairKey",
+          "fieldPath": "algorithmVersion",
           "order": "ASCENDING"
         },
-        {
-          "fieldPath": "displayTime",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "events",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "pairKey",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "displayTime",
-          "order": "DESCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "events",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "bodies",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "displayTime",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "events",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "bodies",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "displayTime",
-          "order": "DESCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "events",
-      "queryScope": "COLLECTION",
-      "fields": [
         {
           "fieldPath": "validationStatus",
           "order": "ASCENDING"
@@ -95,6 +27,10 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "algorithmVersion",
+          "order": "ASCENDING"
+        },
+        {
           "fieldPath": "validationStatus",
           "order": "ASCENDING"
         },
@@ -112,6 +48,10 @@
       "collectionGroup": "events",
       "queryScope": "COLLECTION",
       "fields": [
+        {
+          "fieldPath": "algorithmVersion",
+          "order": "ASCENDING"
+        },
         {
           "fieldPath": "validationStatus",
           "order": "ASCENDING"
@@ -135,6 +75,10 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "algorithmVersion",
+          "order": "ASCENDING"
+        },
+        {
           "fieldPath": "validationStatus",
           "order": "ASCENDING"
         },
@@ -156,6 +100,10 @@
       "collectionGroup": "events",
       "queryScope": "COLLECTION",
       "fields": [
+        {
+          "fieldPath": "algorithmVersion",
+          "order": "ASCENDING"
+        },
         {
           "fieldPath": "validationStatus",
           "order": "ASCENDING"
@@ -179,6 +127,10 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "algorithmVersion",
+          "order": "ASCENDING"
+        },
+        {
           "fieldPath": "validationStatus",
           "order": "ASCENDING"
         },
@@ -201,129 +153,9 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "type",
+          "fieldPath": "algorithmVersion",
           "order": "ASCENDING"
         },
-        {
-          "fieldPath": "displayTime",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "events",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "type",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "displayTime",
-          "order": "DESCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "events",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "type",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "pairKey",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "displayTime",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "events",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "type",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "pairKey",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "displayTime",
-          "order": "DESCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "events",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "type",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "bodies",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "displayTime",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "ASCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "events",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {
-          "fieldPath": "type",
-          "order": "ASCENDING"
-        },
-        {
-          "fieldPath": "bodies",
-          "arrayConfig": "CONTAINS"
-        },
-        {
-          "fieldPath": "displayTime",
-          "order": "DESCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "DESCENDING"
-        }
-      ]
-    },
-    {
-      "collectionGroup": "events",
-      "queryScope": "COLLECTION",
-      "fields": [
         {
           "fieldPath": "type",
           "order": "ASCENDING"
@@ -347,6 +179,10 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "algorithmVersion",
+          "order": "ASCENDING"
+        },
+        {
           "fieldPath": "type",
           "order": "ASCENDING"
         },
@@ -368,6 +204,10 @@
       "collectionGroup": "events",
       "queryScope": "COLLECTION",
       "fields": [
+        {
+          "fieldPath": "algorithmVersion",
+          "order": "ASCENDING"
+        },
         {
           "fieldPath": "type",
           "order": "ASCENDING"
@@ -395,6 +235,10 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "algorithmVersion",
+          "order": "ASCENDING"
+        },
+        {
           "fieldPath": "type",
           "order": "ASCENDING"
         },
@@ -420,6 +264,10 @@
       "collectionGroup": "events",
       "queryScope": "COLLECTION",
       "fields": [
+        {
+          "fieldPath": "algorithmVersion",
+          "order": "ASCENDING"
+        },
         {
           "fieldPath": "type",
           "order": "ASCENDING"
@@ -446,6 +294,10 @@
       "collectionGroup": "events",
       "queryScope": "COLLECTION",
       "fields": [
+        {
+          "fieldPath": "algorithmVersion",
+          "order": "ASCENDING"
+        },
         {
           "fieldPath": "type",
           "order": "ASCENDING"

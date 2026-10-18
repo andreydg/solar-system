@@ -231,7 +231,7 @@ hosts: `FIRESTORE_EMULATOR_HOST=127.0.0.1:18085 mvn -f backend/pom.xml test
 ### API safety and operations
 
 Generation/query windows must be increasing and at most 31 years; dates are bounded
-to 1600–3000. Generation has a cooperative 30-second calculation budget. Expensive
+to 1600–2999. Generation has a cooperative 30-second calculation budget. Expensive
 planet-only generation is limited to two concurrent requests, independently of 32 catalog-read,
 16 cold-trajectory, 16 warm-trajectory response, and eight JPL-bound slots (including small-body generation). Only admitted requests consume the per-client
 minute quotas (60 generation / 120 JPL-bound / 600 reads); a high 6,000/minute
@@ -282,7 +282,31 @@ mvn -f backend/pom.xml package
 npm run test:e2e # optionally E2E_PORT=18081 if the default test port is occupied
 ```
 
-### Catalog rollback and retries
+## Scientific provenance and catalog version 2
+
+Candidates are approximate, not automatically JPL-validated. Planet candidates use
+JPL's [approximate Keplerian elements](https://ssd.jpl.nasa.gov/planets/approx_pos.html)
+(Table 1 in 1800–2050; Table 2 and outer-planet corrections outside that interval).
+Small-body candidates use interpolated, periodically repeated trajectories. Neither
+method is an observation-grade ephemeris.
+
+Validation requires a bracketed crossing or interior extremum in fresh geometric
+Horizons vectors, then a 5-minute refinement grid. That grid is **not an accuracy
+guarantee**. Transit acceptance also checks apparent disk overlap and foreground
+distance. Brightness remains a photometric model using JPL geometry, not a JPL
+measurement. These are geocentric/geometric events, not local visibility forecasts;
+atmosphere, observer location, light-time, and historical time-scale differences
+are outside their scope. Recorded Horizons fixtures test acceptance offline.
+
+This release requires the updated composite indexes and **read schema version 2**.
+Follow the migration runbook above again: deploy/wait for indexes, dry-run, then
+apply with old writers drained. Legacy documents without an algorithm version are
+retained as version 0, but excluded from current searches. New generation uses
+version-prefixed IDs, so old incorrect validations cannot suppress corrected events.
+Only current-version pending events receive backfilled jobs; obsolete queued jobs
+are abandoned without promoting their results. No historical records are deleted.
+
+## Catalog rollback and retries
 
 After **any** rollback to an older writer, drain/stop that revision, rerun the
 index migration with `--solar-system.migration.apply=true`, and verify the
@@ -299,6 +323,52 @@ corruption produces an actionable 503 instead of a long chain of empty client pa
 Public catalog reads never schedule validation retries. Use the authenticated
 POST validation endpoint to request retries; reads must remain free of hidden
 JPL work. The durable-worker PR makes this an explicit queued operation.
+
+### Scientific coverage and acceptance fixtures
+
+Validation uses Mars–Neptune system barycentres (Horizons IDs 4–8), with Earth's
+centre (399) as observer. These planetary targets cover the full 1600–2999 UI
+range. Small-body integrations can still have shorter coverage. Missing Horizons
+data is shown as **provisional / JPL data unavailable**, with a bounded public coverage summary (raw errors remain on the private job),
+not hidden as a rejected event. A genuine geometry rejection remains excluded
+from event search. See [JPL's target and coverage documentation](https://ssd.jpl.nasa.gov/horizons/manual.html#selecting-major-bodies).
+
+Slow-pair distance windows scale with the synodic period (7–180 days); refinement
+requires a real interior extremum, and generation never substitutes an unbracketed
+window edge. Recorded JPL accept/reject fixtures cover all eleven event types and
+the 2056 Saturn–Uranus / 2084 Uranus–Neptune farthest-approach regressions.
+Requests and retrieval provenance are in `backend/src/test/resources/jpl/cases/provenance.json`.
+Candidate and refinement grids are aligned to absolute UTC, so overlapping windows
+produce one physical time/id/job. Extremum searches include neighbours beyond both
+edges (including an unaligned last interval) but only return events within the
+requested window. Transit candidates are refined at five minutes before checking
+solar/planet angular disk overlap; the daily coarse samples are not a transit veto.
+Periodic small-body visualization retains fractional days outside native coverage;
+this wrapping is still approximate, not a future ephemeris prediction.
+In particular, repeated-orbit wrap seams can produce opposite stationary crossings within 24 hours
+for Ceres, Vesta, Encke and Halley at or beyond the edges of native coverage. These provisional artifacts
+are not confirmed physical events; require JPL coverage and validation before relying on them.
+Refinement stays inside the neighbours that bracket a candidate and rejects bracket
+edges. Brightness and Encke encounter grids remain five-day grids in long searches
+to retain closely spaced peaks. Mercury and Venus brightness candidates must rise by
+at least 0.05 mag within 120 days on both sides of the local minimum, before the next shoulder.
+A 1,000-window Next/Prev sweep checks both against
+short-window results. Stationary times use centred, fixed-baseline one-day rates.
+Planet positions preserve JPL Table 1 throughout its native 1800–2050 fit and blend
+Cartesian positions through smooth ten-year transitions just outside that interval
+(1790–1800 and 2050–2060, in Julian years: J2000 centuries −2.1..−2 and 0.5..0.6).
+This preserves near-future Table 1 accuracy but extrapolates it by up to ten years
+in the ramps, where JPL gives no accuracy guarantee. Beyond the ramps, Table 2 is unchanged.
+These remain approximate positions, not a replacement for Horizons validation.
+All 13 recorded acceptance cases also validate actual generated anchors offline;
+the ordinary coarse recordings include three extra days on each side. The U–N
+coarse fixture spans ±181 days and tests the actual T18:00 generator anchor.
+Coverage tests record both real "prior to A.D." and "after A.D." messages and assert
+the entire public allowlisted sentence.
+
+The capture script prints raw numeric samples; normal tests use only the checked-in
+recordings and real application geometry/photometry, not network calls.
+
 
 ## Credits
 

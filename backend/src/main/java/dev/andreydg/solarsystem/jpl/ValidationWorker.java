@@ -86,6 +86,7 @@ public class ValidationWorker {
             var found = catalog.findById(lease.eventId());
             if (found.isEmpty()) return abandon(lease, "Catalog event missing");
             event = found.get();
+            if (event.algorithmVersion() != CatalogEvent.CURRENT_ALGORITHM_VERSION) return abandon(lease, "Obsolete algorithm; regenerate event");
         } catch (EventCatalogStorageException failure) {
             return retry(lease, "Temporary catalog read failure: " + failure);
         } catch (RuntimeException failure) {
@@ -102,20 +103,34 @@ public class ValidationWorker {
             log.warn("Validation attempt {} failed for {}: {}", lease.attempt(), event.id(), failure.toString());
             boolean transientFailure = failure instanceof JplHorizonsException jpl && jpl.isTransient()
                 || failure instanceof EventCatalogStorageException;
-            if (transientFailure) return retry(lease, failure.toString());
+            if (transientFailure) return retry(lease, failure.toString(), event);
             String reason = failure.toString();
             privateError = ValidationJobs.privateDiagnostic(reason);
             if (event.validationStatus() == ValidationStatus.VALIDATED) return abandon(lease, privateError);
-            result = event.failed("JPL did not confirm this event. An administrator can inspect the validation job.");
+            result = failure instanceof JplCoverageException ? event.unavailable(coverageSummary(failure))
+                : event.failed("JPL did not confirm this event. An administrator can inspect the validation job.");
         }
         // A failed write says nothing about geometry. Leave the event unchanged and reschedule.
         try {
             return (privateError == null ? jobs.complete(lease, result, clock.instant())
                 : jobs.complete(lease, result, clock.instant(), privateError))
-                ? (result.validationStatus() == ValidationStatus.VALIDATED ? "validated" : "failed") : "lease-lost";
+                ? result.validationStatus().storedValue() : "lease-lost";
         } catch (EventCatalogStorageException failure) {
             return retry(lease, "Temporary validation result storage failure: " + failure);
         }
+    }
+    private static String coverageSummary(RuntimeException failure) {
+        var boundary = java.util.regex.Pattern.compile("(?i)\\b(prior to|before|after)\\s+(?:A\\.D\\.\\s+)?(\\d{4}-(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)-\\d{2})\\b")
+            .matcher(java.util.Objects.toString(failure.getMessage(), ""));
+        return boundary.find() ? "JPL ephemeris unavailable " + boundary.group(1).toLowerCase(java.util.Locale.ROOT)
+            + " " + boundary.group(2) + "." : "JPL ephemeris is unavailable for this target and date.";
+    }
+    private String retry(ValidationJobs.Lease lease, String reason, CatalogEvent event) {
+        if (lease.attempt() >= MAX_ATTEMPTS && event.validationStatus() == ValidationStatus.PENDING) {
+            return jobs.complete(lease, event.unavailable("Retry budget exhausted: JPL is temporarily unavailable. An administrator can retry this event."),
+                clock.instant(), ValidationJobs.privateDiagnostic("Retry budget exhausted: " + reason)) ? "failed" : "lease-lost";
+        }
+        return retry(lease, reason);
     }
     private String retry(ValidationJobs.Lease lease, String reason) {
         if (lease.attempt() >= MAX_ATTEMPTS) return abandon(lease, "Retry budget exhausted: " + reason);

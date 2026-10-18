@@ -11,12 +11,12 @@ import org.springframework.stereotype.Component;
 @Component
 @Primary
 public class CompositeEphemerisProvider implements EphemerisProvider {
-    private final Vsop87aEphemerisProvider vsop87aEphemerisProvider;
+    private final KeplerianEphemerisProvider vsop87aEphemerisProvider;
     private final JplEphemerisProvider jplEphemerisProvider;
     private final SmallBodyTrajectoryService trajectoryService;
 
     public CompositeEphemerisProvider(
-        Vsop87aEphemerisProvider vsop87aEphemerisProvider,
+        KeplerianEphemerisProvider vsop87aEphemerisProvider,
         JplEphemerisProvider jplEphemerisProvider,
         SmallBodyTrajectoryService trajectoryService
     ) {
@@ -42,7 +42,7 @@ public class CompositeEphemerisProvider implements EphemerisProvider {
     }
 
     public String sourceFor(BodyId body) {
-        return body.isSmallBody() ? jplEphemerisProvider.source() : vsop87aEphemerisProvider.source();
+        return body.isSmallBody() ? "JPL_TRAJECTORY_APPROX" : vsop87aEphemerisProvider.source();
     }
 
     public List<JplEphemerisProvider.HeliocentricDistanceSample> heliocentricDistanceSamples(

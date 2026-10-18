@@ -92,6 +92,26 @@ class SmallBodyTrajectoryServiceTests {
         assertThat(afterCache).isAfter(Instant.parse("2024-05-09T00:00:00Z"));
     }
 
+    @Test void orbitWrappingPreservesFractionalDaysAndInterpolatedMotion() {
+        Instant first = Instant.parse("1988-01-01T00:00:00Z");
+        long period = Math.round(BodyId.HALLEY.typicalOrbitDays() * 86_400_000);
+        var path = List.of(new TrajectorySample(first, new Vector3Au(0, 0, 0)),
+            new TrajectorySample(first.plusMillis(period), new Vector3Au(10, 0, 0)));
+        for (long lap : new long[] {-3, -1, 1, 3}) {
+            Instant query = first.plusMillis(lap * period).plusSeconds(123 * 86400L + 12345);
+            Instant mapped = SmallBodyTrajectoryService.resolveQueryTime(BodyId.HALLEY, path, query);
+            assertThat(mapped).isEqualTo(first.plusSeconds(123 * 86400L + 12345));
+            Instant next = SmallBodyTrajectoryService.resolveQueryTime(BodyId.HALLEY, path, query.plusSeconds(3600));
+            assertThat(next).isEqualTo(mapped.plusSeconds(3600));
+            assertThat(SmallBodyTrajectoryService.interpolateWithinRange(path, next).orElseThrow().x())
+                .isGreaterThan(SmallBodyTrajectoryService.interpolateWithinRange(path, mapped).orElseThrow().x());
+        }
+        assertThat(SmallBodyTrajectoryService.resolveQueryTime(BodyId.HALLEY, path, first.minusMillis(1)))
+            .isEqualTo(first.plusMillis(period - 1));
+        assertThat(SmallBodyTrajectoryService.resolveQueryTime(BodyId.HALLEY, path, first.plusMillis(period + 1)))
+            .isEqualTo(first.plusMillis(1));
+    }
+
     @Nested
     class InterpolationTests {
         private static final List<TrajectorySample> THREE_POINT_TRAJECTORY = List.of(

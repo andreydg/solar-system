@@ -132,3 +132,36 @@ it("worker runbook explains the reservation and scheduling capacity tradeoff", (
   for (const text of ["319 seconds", "161-second claim window", "33 five-second jobs", "one-minute, overlap-safe"])
     expect(readme).toContain(text);
 });
+it("fixture overview records every capture date and the fifteen recaptured coarse files", () => {
+  const provenance = JSON.parse(source("backend/src/test/resources/jpl/cases/provenance.json"));
+  const dates = new Set([provenance.retrieved, ...provenance.recaptured]);
+  const entries = provenance.requests as { retrieved?: string }[];
+  expect(entries.filter(entry => entry.retrieved === "2026-10-18")).toHaveLength(15);
+  expect(dates).toEqual(new Set(entries.map(entry => entry.retrieved ?? provenance.retrieved)));
+  const readme = source("backend/src/test/resources/jpl/README.txt");
+  for (const date of dates) expect(readme).toContain(date);
+  expect(readme).toContain("15 coarse files recaptured 2026-10-18");
+});
+
+it("scientific documentation states brightness filtering and repeated-orbit seam limitations", () => {
+  const readme = source("README.md").replace(/\s+/g, " ");
+  expect(readme).toContain("at least 0.05 mag within 120 days on both sides");
+  expect(readme).toContain("repeated-orbit wrap seams can produce opposite stationary crossings within 24 hours");
+  expect(readme).toContain("for Ceres, Vesta, Encke and Halley at or beyond the edges of native coverage.");
+  expect(readme).toContain("These provisional artifacts are not confirmed physical events");
+  expect(readme).toContain("preserve JPL Table 1 throughout its native 1800–2050 fit");
+  expect(readme).toContain("J2000 centuries −2.1..−2 and 0.5..0.6");
+  expect(readme).toContain("in the ramps, where JPL gives no accuracy guarantee.");
+  const fixtures = source("backend/src/test/resources/jpl/README.txt");
+  expect(fixtures).toContain("Uranus–Neptune ranges");
+  expect(fixtures.replace(/\s+/g, " ")).toContain(
+    "Vesta candidate orbit: normalized from the unmodified NASA/JPL response captured " +
+    "2026-10-12 for #36 (vesta-v1.txt), target 4;, with the same frame/time options. " +
+    "Daily vectors from 2024-03-09 to 2027-10-26.");
+  const rows = source("backend/src/test/resources/jpl/vesta-orbit.csv").trim().split("\n");
+  const times = rows.map(row => Date.parse(row.split(",")[0]));
+  expect(new Date(times[0]).toISOString().slice(0, 10)).toBe("2024-03-09");
+  expect(new Date(times.at(-1)!).toISOString().slice(0, 10)).toBe("2027-10-26");
+  expect(times.slice(1).every((time, i) => time - times[i] === 86_400_000)).toBe(true);
+  expect(fixtures).not.toContain("outer-pair ranges");
+});

@@ -315,6 +315,66 @@ class ValidationWorkerTests {
         assertThat(ValidationBudget.isActive()).isFalse();
     }
 
+    // Recorded from Horizons target 599 on 2026-10-17; no live dependency.
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void noCoverageLeavesAVisibleProvisionalRecordWithTheActualReason(boolean before) {
+        repository.createMissing(List.of(event())).stored();
+        String raw = before ? "No ephemeris for target \"Jupiter\" prior to A.D. 1600-JAN-10 23:58:09.5812 UT"
+            : "API VERSION: 1.2\nAPI SOURCE: NASA/JPL Horizons API\n\nNo ephemeris for target \"Jupiter\" after A.D. 2200-JAN-08 23:58:50.8159 UT";
+        when(validation.validateEvent("event")).thenThrow(new JplCoverageException(raw));
+        assertThat(worker(NOW, true).drainOne()).isEqualTo("unavailable");
+        var query = new CatalogQuery(EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS,
+            NOW.minusSeconds(100), NOW.plusSeconds(100), false, false, 10, null);
+        var visible = catalog.search(query).events().getFirst();
+        assertThat(visible.validationStatus()).isEqualTo(ValidationStatus.UNAVAILABLE);
+        assertThat(visible.jplRawSummary()).isEqualTo(before
+            ? "JPL ephemeris unavailable prior to 1600-JAN-10." : "JPL ephemeris unavailable after 2200-JAN-08.");
+        assertThat(repository.createMissing(List.of(event())).stored()).containsExactly(visible);
+        assertThat(worker(NOW.plusSeconds(10000), true).drainOne()).isEqualTo("idle-or-busy");
+    }
+
+    @Test void rejectedEventCannotBecomeProvisionalAfterAnOutage() {
+        var rejected = event().failed("Geometry rejected");
+        repository.upsert(rejected);
+        repository.enqueue(rejected.id(), NOW);
+        when(validation.validateEvent("event")).thenThrow(new JplHorizonsException("outage", true));
+        Instant time = NOW;
+        for (int i = 1; i <= ValidationWorker.MAX_ATTEMPTS; i++) {
+            worker(time, true).drainOne();
+            time = time.plus(ValidationWorker.retryDelay(i));
+        }
+        assertThat(repository.findById("event")).contains(rejected);
+        assertThat(rejected.unavailable("new coverage failure")).isSameAs(rejected);
+        assertThat(repository.requeueExhausted(null, 100, time).queued()).isEqualTo(1);
+        assertThat(repository.claim(time, ValidationWorker.LEASE).orElseThrow().attempt()).isEqualTo(1);
+    }
+
+    @Test void pendingEventOutagePublishesSafeSummaryAndRemainsRecoverable() {
+        repository.createMissing(List.of(event())).stored();
+        when(validation.validateEvent("event")).thenThrow(new JplHorizonsException("private upstream outage", true));
+        Instant time = NOW;
+        for (int i = 1; i <= ValidationWorker.MAX_ATTEMPTS; i++) {
+            worker(time, true).drainOne();
+            time = time.plus(ValidationWorker.retryDelay(i));
+        }
+        var stored = repository.findById("event").orElseThrow();
+        assertThat(stored.validationStatus()).isEqualTo(ValidationStatus.UNAVAILABLE);
+        assertThat(stored.jplRawSummary()).isEqualTo(
+            "Retry budget exhausted: JPL is temporarily unavailable. An administrator can retry this event.");
+        assertThat(repository.requeueExhausted(null, 100, time).queued()).isEqualTo(1);
+        assertThat(repository.claim(time, ValidationWorker.LEASE).orElseThrow().attempt()).isEqualTo(1);
+    }
+
+
+    @Test void fakeCoverageMonthIsNeverPublished() {
+        repository.createMissing(List.of(event()));
+        when(validation.validateEvent("event")).thenThrow(new JplCoverageException("No ephemeris prior to A.D. 1599-ABC-01 token=secret"));
+        worker(NOW, true).drainOne();
+        assertThat(repository.findById("event").orElseThrow().jplRawSummary())
+            .isEqualTo("JPL ephemeris is unavailable for this target and date.");
+    }
+
     private CatalogEvent event() {
         return new CatalogEvent("event", EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS,
             NOW, 0.6, null, null, "TEST", null, null, null, null, null, ValidationStatus.PENDING,

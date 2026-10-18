@@ -114,18 +114,12 @@ public class SmallBodyTrajectoryService {
             return timeUtc;
         }
 
-        long orbitDays = Math.max(1, Math.round(body.typicalOrbitDays()));
-        long daysFromFirst = Duration.between(first.timeUtc(), timeUtc).toDays();
-        long wrappedDays = Math.floorMod(daysFromFirst, orbitDays);
-        Instant phasedTime = first.timeUtc().plus(Duration.ofDays(wrappedDays));
-
-        if (!phasedTime.isAfter(last.timeUtc())) {
-            return phasedTime;
-        }
-
-        long spanDays = Duration.between(first.timeUtc(), last.timeUtc()).toDays();
-        long offsetDays = Math.floorMod(wrappedDays, spanDays + 1);
-        return first.timeUtc().plus(Duration.ofDays(offsetDays));
+        long orbitMillis = Math.round(body.typicalOrbitDays() * 86_400_000);
+        long offset = Math.floorMod(timeUtc.toEpochMilli() - first.timeUtc().toEpochMilli(), orbitMillis);
+        long span = Duration.between(first.timeUtc(), last.timeUtc()).toMillis();
+        if (span <= 0) return first.timeUtc();
+        if (offset > span) offset = Math.floorMod(offset, span);
+        return first.timeUtc().plusMillis(offset);
     }
 
     // Package-private so unit tests in this package can exercise the interpolation algorithm directly.

@@ -14,7 +14,6 @@ import dev.andreydg.solarsystem.catalog.CatalogEvent;
 import dev.andreydg.solarsystem.catalog.EventType;
 import dev.andreydg.solarsystem.catalog.ValidationStatus;
 import dev.andreydg.solarsystem.catalog.EventCatalogService;
-import dev.andreydg.solarsystem.config.JplProperties;
 import dev.andreydg.solarsystem.ephemeris.Vector3Au;
 import java.time.Duration;
 import java.time.Instant;
@@ -29,11 +28,7 @@ class JplValidationServiceTests {
     private final JplHorizonsClient horizonsClient = mock(JplHorizonsClient.class);
     private final EventCatalogService catalogService = mock(EventCatalogService.class);
     private final JplValidationService service =
-        new JplValidationService(catalogService, horizonsClient, jplProperties(false));
-
-    private static JplProperties jplProperties(boolean asyncEnabled) {
-        return new JplProperties("http://example", asyncEnabled, 2, 3, 1);
-    }
+        new JplValidationService(catalogService, horizonsClient);
 
     private static final Instant EVENT_TIME = Instant.parse("2027-02-19T00:00:00Z");
 
@@ -76,13 +71,13 @@ class JplValidationServiceTests {
             .vectors(eq(BodyId.EARTH), any(), any(), step.capture());
         // 6h coarse / 1h refined steps must be expressed in minutes, matching the working "Nm" form.
         assertThat(step.getAllValues()).allSatisfy(value -> assertThat(value).matches("\\d+m"));
-        assertThat(step.getAllValues()).contains("360m", "60m");
+        assertThat(step.getAllValues()).contains("360m", "5m");
     }
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.EnumSource(EventType.class)
     void everyEventTypePinsBothVectorApisAndItsActualRequestCount(EventType type) {
-        var model = new dev.andreydg.solarsystem.ephemeris.Vsop87aEphemerisProvider();
+        var model = new dev.andreydg.solarsystem.ephemeris.KeplerianEphemerisProvider();
         var repository = new dev.andreydg.solarsystem.storage.InMemoryEventCatalogRepository();
         var catalog = new EventCatalogService(new dev.andreydg.solarsystem.ephemeris.CompositeEphemerisProvider(model, null, null), repository);
         CatalogEvent event;
@@ -120,12 +115,12 @@ class JplValidationServiceTests {
                 rows.add(new JplVector(body, time, position.apply(body, time), time.toString(), "synthetic model"));
             return rows;
         });
-        assertThat(new JplValidationService(catalog, client, jplProperties(false)).validateEvent(event.id()).validationStatus())
+        assertThat(new JplValidationService(catalog, client).validateEvent(event.id()).validationStatus())
             .isEqualTo(ValidationStatus.VALIDATED);
         long calls = org.mockito.Mockito.mockingDetails(client).getInvocations().stream()
             .filter(call -> java.util.Set.of("vector", "vectors").contains(call.getMethod().getName())).count();
         int expected = switch (type) {
-            case PERIHELION, OPPOSITION, CONJUNCTION -> 2;
+            case PERIHELION -> 2;
             default -> 4;
         };
         assertThat(calls).as(type.apiValue() + " real validation request count").isEqualTo(expected);

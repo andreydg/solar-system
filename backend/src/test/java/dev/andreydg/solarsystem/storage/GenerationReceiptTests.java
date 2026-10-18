@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 class GenerationReceiptTests {
     @Test void repeatedGenerationDoesNotResetAnExistingJob() {
         var repository = new InMemoryEventCatalogRepository();
-        var provider = new CompositeEphemerisProvider(new Vsop87aEphemerisProvider(), null, null);
+        var provider = new CompositeEphemerisProvider(new KeplerianEphemerisProvider(), null, null);
         var service = new EventCatalogService(provider, repository);
         var from = Instant.parse("2026-01-01T00:00:00Z");
         var to = Instant.parse("2051-01-01T00:00:00Z");

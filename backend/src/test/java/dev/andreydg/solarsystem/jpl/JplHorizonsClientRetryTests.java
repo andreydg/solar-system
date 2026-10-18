@@ -35,6 +35,20 @@ class JplHorizonsClientRetryTests {
         return new Fixture(new JplHorizonsClient(properties, builder), server);
     }
 
+    @Test void coverageFailureIsNotScientificRejectionAndUsesLongRangePlanetaryTargets() {
+        for (var body : List.of(BodyId.MARS, BodyId.JUPITER, BodyId.SATURN, BodyId.URANUS, BodyId.NEPTUNE)) {
+            Fixture fixture = fixture(3);
+            fixture.server().expect(ExpectedCount.once(), requestTo(Matchers.containsString("COMMAND=%27" + body.horizonsCommand() + "%27")))
+                .andRespond(withSuccess("No ephemeris for target after 2500-DEC-31", MediaType.TEXT_PLAIN));
+            assertThatThrownBy(() -> fixture.client().vector(body, Instant.parse("2600-01-01T00:00:00Z")))
+                .isInstanceOf(JplCoverageException.class).hasMessageContaining("2500-DEC-31");
+            fixture.server().verify();
+        }
+        assertThat(List.of(BodyId.MARS, BodyId.JUPITER, BodyId.SATURN, BodyId.URANUS, BodyId.NEPTUNE)
+            .stream().map(BodyId::horizonsCommand)).containsExactly("4", "5", "6", "7", "8");
+        assertThat(BodyId.EARTH.horizonsCommand()).isEqualTo("399");
+    }
+
     @Test
     void retriesTransient5xxThenSucceeds() {
         Fixture fixture = fixture(3);
@@ -91,6 +105,10 @@ class JplHorizonsClientRetryTests {
         fixture.server()
             .expect(ExpectedCount.once(), requestTo(Matchers.allOf(
                 Matchers.containsString("REF_SYSTEM=%27ICRF%27"),
+                Matchers.containsString("TIME_TYPE=%27UT%27"),
+                Matchers.containsString("TIME_DIGITS=%27FRACSEC%27"),
+                Matchers.containsString("CAL_TYPE=%27GREGORIAN%27"),
+                Matchers.containsString("VEC_CORR=%27NONE%27"),
                 Matchers.containsString("REF_PLANE=%27ECLIPTIC%27"))))
             .andRespond(withSuccess(VALID_BODY, MediaType.TEXT_PLAIN));
 

@@ -1,0 +1,12 @@
+Orbit regression fixtures are subsets of the unmodified NASA/JPL Horizons snapshots
+captured on 2026-10-12, originally in PR #36 (2663e51b079c0a6d060093382dcf1db82bb4dbfb).
+Common parameters and source URL: https://ssd.jpl.nasa.gov/api/horizons.api
+CENTER='500@10', REF_SYSTEM='ICRF', REF_PLANE='ECLIPTIC', EPHEM_TYPE='VECTORS',
+TIME_TYPE='UT', CAL_TYPE='GREGORIAN', TIME_DIGITS='FRACSEC', VEC_CORR='NONE',
+VEC_TABLE='2', OUT_UNITS='AU-D', CSV_FORMAT='YES', OBJ_DATA='NO'.
+Halley: COMMAND='90000030;', JPL#75, 1988-04-30 through 2063-09-04, step 2 days.
+Encke: COMMAND='90000091;', 2024-05-09 through 2027-08-26, step 1 day.
+Retained every 15th row, last row, and every row within 3 AU of the Sun.
+Coordinates are unchanged; dates normalized to ISO UTC. Tests exercise real
+interpolation, fractional phase wrapping, generation and job deduplication.
+These approximate orbit tables are not the independent JPL validation oracle.
