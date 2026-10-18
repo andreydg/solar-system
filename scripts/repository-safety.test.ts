@@ -127,3 +127,8 @@ it("catalog production repositories have no test-only bulk API or unused explici
     }
   }
 });
+it("worker runbook explains the reservation and scheduling capacity tradeoff", () => {
+  const readme = source("README.md");
+  for (const text of ["319 seconds", "161-second claim window", "33 five-second jobs", "one-minute, overlap-safe"])
+    expect(readme).toContain(text);
+});

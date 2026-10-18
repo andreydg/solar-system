@@ -111,16 +111,65 @@ The visualization intentionally separates physical data from display scale:
   oppositions, or conjunctions for a pair/range.
 - `GET /api/catalog/options` lists supported event types and major bodies.
 - `GET /api/validation/jpl/position` fetches a Sun-centered vector from JPL Horizons.
-- `POST /api/validation/jpl/event/{eventId}` validates a cataloged event against
-  JPL vectors and stores corrected/validated metadata where supported.
+- `POST /api/validation/jpl/event/{eventId}` administratively queues revalidation.
+- `POST /api/admin/validation/drain` drains due validation jobs within a bounded request.
 
-Generated events are stored immediately as provisional catalog entries. When
-`JPL_ASYNC_VALIDATION_ENABLED=true`, the backend validates generated events in the
-background and updates the same Firestore document with JPL-derived values. API
+Generated events and durable jobs are stored immediately as provisional catalog entries.
+When `JPL_ASYNC_VALIDATION_ENABLED=true`, the configured authenticated worker trigger
+validates queued events and updates the same Firestore document with JPL-derived values. API
 responses derive display fields by preferring validated values when present, while
 preserving the original computed values for traceability.
 
 ## Verification
+
+### Durable validation worker (required for automatic validation)
+
+Generated events and their initial `events-validation/{eventId}` jobs are now
+inserted in the same transaction. Queries never schedule retries or mutate jobs.
+A single Firestore lease limits validation work across instances. Job leases last
+ten minutes; abandoned work becomes eligible again. Completion updates the event
+and job atomically and is fenced by the lease token, so a late worker cannot
+overwrite a newer result. Transient failures retry up to 12 attempts, starting at five minutes and capping
+at six hours (over 24 hours of outage coverage);
+permanent/exhausted failures stop until an administrator explicitly requeues them.
+
+Configure **one** deployment-level scheduler to POST `/api/admin/validation/drain`
+over HTTPS with the admin Bearer token. Each request drains up to 200 due jobs or eight minutes of work;
+set Cloud Run's **request timeout** to at least 600 seconds and Cloud Scheduler's
+**attempt deadline** to at least 600 seconds (for example `gcloud run services update SERVICE --timeout=600s`
+and `gcloud scheduler jobs update http JOB --attempt-deadline=600s`).
+The defaults are not sufficient for this worker. Start with a one-minute schedule.
+Before claiming, the worker reserves the configured worst-case job time (four
+Horizons calls, bounded waits/timeouts, retries/backoff, plus commit margin).
+The default reservation is 319 seconds, leaving a 161-second claim window:
+about 33 five-second jobs per drain instead of 96 without a reservation.
+A one-minute, overlap-safe schedule preserves sustained throughput; sparse
+schedules can reduce capacity. Startup logs both the reservation and claim window,
+including near-limit configurations that may process only one job per drain.
+Startup rejects retry configurations whose worst case cannot fit the 480-second budget.
+Unexpected in-flight budget exhaustion gets two free consecutive deferrals;
+the third charges an attempt, so an unfinishable job eventually exhausts its retry
+budget and remains administratively recoverable. Private job diagnostics retain
+up to 8,000 characters, including transient failures; public summaries remain redacted.
+Overlapping invocations safely return `idle-or-busy`. Do not put this trigger or
+token in browser code. This PR does not provision the scheduler, secret, or IAM.
+Without a worker trigger, events remain honestly PENDING; they are not silently
+validated in an in-memory post-response task. `JPL_ASYNC_VALIDATION_ENABLED=false`
+pauses claims without losing work. Restore it to resume.
+
+Run the catalog migration command below (dry-run first, then apply) to backfill
+jobs for old PENDING documents. It does not automatically retry FAILED records.
+Authenticated POST `/api/validation/jpl/event/{eventId}` explicitly requeues an
+event and returns 202 **without clearing accepted values**. Revalidation failures
+leave the last accepted result available; errors belong to the job. A failed
+result commit is retried as a storage failure, not a scientific rejection.
+
+After recovering from an outage, POST `/api/admin/validation/requeue-exhausted?limit=100`
+with the admin token. Follow its `nextCursor` as `after` until null. This explicit,
+bounded recovery only resets exhausted retries, not scientific rejections. Repair
+malformed source documents before requeuing them individually. Inspect terminal `state=failed` job documents and alert on
+old `availableAt` times or growing backlog. No periodic browser/database polling
+is introduced; only the single configured worker trigger checks for due jobs.
 
 ### Indexed catalog rollout (required before serving catalog traffic)
 

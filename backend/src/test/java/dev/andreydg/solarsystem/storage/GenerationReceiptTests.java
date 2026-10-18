@@ -1,31 +1,32 @@
 package dev.andreydg.solarsystem.storage;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.*;
 import dev.andreydg.solarsystem.catalog.*;
 import dev.andreydg.solarsystem.ephemeris.*;
 import java.time.Instant;
 import java.util.*;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.ApplicationEventPublisher;
 
 class GenerationReceiptTests {
-    @Test void repeatedGenerationDoesNotRepublishExistingPendingIds() {
+    @Test void repeatedGenerationDoesNotResetAnExistingJob() {
         var repository = new InMemoryEventCatalogRepository();
-        var publisher = mock(ApplicationEventPublisher.class);
         var provider = new CompositeEphemerisProvider(new Vsop87aEphemerisProvider(), null, null);
-        var service = new EventCatalogService(provider, repository, publisher);
+        var service = new EventCatalogService(provider, repository);
         var from = Instant.parse("2026-01-01T00:00:00Z");
         var to = Instant.parse("2051-01-01T00:00:00Z");
         var original = service.generate(EventType.STATIONARY, BodyId.EARTH, BodyId.MERCURY, from, to);
         assertThat(original).hasSizeGreaterThan(100);
+        var now = Instant.now();
+        var lease = repository.claim(now, java.time.Duration.ofMinutes(10)).orElseThrow();
+        var jobBefore = repository.inspectJob(lease.eventId()).orElseThrow();
+        assertThat(jobBefore.attempts()).isEqualTo(1);
+        assertThat(jobBefore.token()).isEqualTo(lease.token());
         for (int i = 0; i < 3; i++) {
             assertThat(service.generate(EventType.STATIONARY, BodyId.EARTH, BodyId.MERCURY, from, to)).isEqualTo(original);
         }
-        var emitted = org.mockito.ArgumentCaptor.forClass(Object.class);
-        verify(publisher, times(1)).publishEvent(emitted.capture());
-        assertThat(((CatalogEventsGeneratedEvent) emitted.getValue()).eventIds()).containsExactlyElementsOf(
-            original.stream().map(CatalogEvent::id).toList());
+        assertThat(repository.inspectJob(lease.eventId())).contains(jobBefore);
+        var claimedEvent = repository.findById(lease.eventId()).orElseThrow();
+        assertThat(repository.complete(lease, claimedEvent, now)).isTrue();
     }
 
     @Test void concurrentCreationReceiptsNeverReportTheSameIdTwice() throws Exception {

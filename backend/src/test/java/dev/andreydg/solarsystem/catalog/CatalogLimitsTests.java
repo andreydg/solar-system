@@ -11,7 +11,7 @@ import org.springframework.context.ApplicationEventPublisher;
 class CatalogLimitsTests {
     @Test void rejectsReversedAndUnboundedRangesBeforeDoingWork() {
         var ephemeris = mock(CompositeEphemerisProvider.class);
-        var service = new EventCatalogService(ephemeris, new InMemoryEventCatalogRepository(), mock(ApplicationEventPublisher.class));
+        var service = new EventCatalogService(ephemeris, new InMemoryEventCatalogRepository());
         Instant from = Instant.parse("2026-01-01T00:00:00Z");
         for (Instant to : new Instant[] {from, from.minusSeconds(1), from.plusSeconds(366L * 86400 * 32)}) {
             assertThatThrownBy(() -> service.generate(EventType.OPPOSITION, BodyId.EARTH, BodyId.MARS, from, to))

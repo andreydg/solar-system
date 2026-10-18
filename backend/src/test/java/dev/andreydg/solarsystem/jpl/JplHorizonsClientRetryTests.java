@@ -54,6 +54,36 @@ class JplHorizonsClientRetryTests {
     }
 
     @Test
+    void schedulesRatherThanInlineRetriesPartialBodyFailuresAndReleasesCapacity() {
+        Fixture fixture = fixture(3);
+        fixture.server().expect(requestTo(Matchers.startsWith("https://example.test/horizons"))).andRespond(request -> {
+            var response = new org.springframework.mock.http.client.MockClientHttpResponse(new java.io.InputStream() {
+                private boolean started;
+                @Override public int read() throws java.io.IOException {
+                    if (!started) { started = true; return 'x'; }
+                    throw new java.net.SocketTimeoutException("dripping Horizons body timed out");
+                }
+            }, HttpStatus.OK);
+            response.getHeaders().setContentType(MediaType.TEXT_PLAIN);
+            return response;
+        });
+        fixture.server().expect(requestTo(Matchers.startsWith("https://example.test/horizons")))
+            .andRespond(withSuccess(VALID_BODY, MediaType.TEXT_PLAIN));
+        assertThatThrownBy(() -> fixture.client().vector(BodyId.EARTH, Instant.parse("2027-02-19T00:00:00Z")))
+            .isInstanceOf(JplHorizonsException.class).hasMessageContaining("JPL Horizons response read failed for earth at 2027-02-19T00:00:00Z")
+            .hasMessageContaining("SocketTimeoutException: dripping Horizons body timed out")
+            .satisfies(failure -> {
+                assertThat(((JplHorizonsException) failure).isTransient()).isTrue();
+                assertThat(failure.getCause()).isInstanceOf(org.springframework.web.client.RestClientException.class);
+            });
+        var limiter = (java.util.concurrent.Semaphore) org.springframework.test.util.ReflectionTestUtils.getField(fixture.client(), "concurrencyLimiter");
+        assertThat(limiter.availablePermits()).isEqualTo(4);
+        // A later request (or the scheduled worker retry) succeeds, not a synchronous retry.
+        assertThat(fixture.client().vector(BodyId.EARTH, Instant.parse("2027-02-19T00:00:00Z")).positionAu().x()).isEqualTo(1.0);
+        fixture.server().verify();
+    }
+
+    @Test
     void requestsVectorsInTheJ2000EclipticFrame() {
         // The browser converts backend vectors from this frame into its equatorial scene, so the
         // frame must be pinned explicitly rather than left to Horizons defaults.
@@ -81,6 +111,69 @@ class JplHorizonsClientRetryTests {
             .satisfies(thrown -> assertThat(((JplHorizonsException) thrown).isTransient()).isFalse());
 
         // Exactly one request: a 4xx is permanent, so no retry.
+        fixture.server().verify();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {400, 404, 200})
+    void budgetedPermanentErrorsStillMakeExactlyOneRequest(int status) {
+        Fixture fixture = fixture(3);
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        fixture.server().expect(ExpectedCount.manyTimes(), requestTo(Matchers.startsWith("https://example.test/horizons")))
+            .andRespond(request -> {
+                requests.incrementAndGet();
+                return withStatus(HttpStatus.valueOf(status)).body("No ephemeris for target").contentType(MediaType.TEXT_PLAIN).createResponse(request);
+            });
+        try (var budget = ValidationBudget.start(java.time.Duration.ofMinutes(1))) {
+            assertThatThrownBy(() -> fixture.client().vector(BodyId.EARTH, Instant.parse("2027-02-19T00:00:00Z")))
+                .isInstanceOf(JplHorizonsException.class)
+                .satisfies(error -> assertThat(((JplHorizonsException) error).isTransient()).isFalse());
+        }
+        assertThat(requests.get()).isEqualTo(1);
+        fixture.server().verify();
+    }
+
+    @Test void expiredDrainBudgetStopsBeforeTheSecondHttpAttempt() {
+        Fixture fixture = fixture(3);
+        var requests = new java.util.concurrent.atomic.AtomicInteger();
+        fixture.server().expect(ExpectedCount.manyTimes(), requestTo(Matchers.startsWith("https://example.test/horizons")))
+            .andRespond(request -> {
+                requests.incrementAndGet();
+                // Expire the actual budget at the first response, without timing-sensitive sleeps.
+                ValidationBudget.start(java.time.Duration.ZERO);
+                return withServerError().createResponse(request);
+            });
+        try (var budget = ValidationBudget.start(java.time.Duration.ofMinutes(1))) {
+            assertThatThrownBy(() -> fixture.client().vector(BodyId.EARTH, Instant.parse("2027-02-19T00:00:00Z")))
+                .isInstanceOf(ValidationBudget.Exhausted.class);
+        }
+        assertThat(requests.get()).isEqualTo(1);
+        assertThat(ValidationBudget.isActive()).isFalse();
+        fixture.server().verify();
+    }
+
+    @Test void stalledBodyDiagnosticIncludesMeasuredElapsedTime() {
+        Fixture fixture = fixture(3);
+        fixture.server().expect(requestTo(Matchers.startsWith("https://example.test/horizons"))).andRespond(request -> {
+            var response = new org.springframework.mock.http.client.MockClientHttpResponse(new java.io.InputStream() {
+                @Override public int read() throws java.io.IOException {
+                    try { Thread.sleep(30); }
+                    catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw new java.io.IOException(ex); }
+                    throw new java.io.IOException("subscription cancelled");
+                }
+            }, HttpStatus.OK);
+            response.getHeaders().setContentType(MediaType.TEXT_PLAIN);
+            return response;
+        });
+        long started = System.nanoTime();
+        assertThatThrownBy(() -> fixture.client().vector(BodyId.EARTH, Instant.parse("2027-02-19T00:00:00Z")))
+            .hasMessageContaining("subscription cancelled")
+            .satisfies(error -> {
+                var elapsed = java.util.regex.Pattern.compile("elapsed (\\d+) ms").matcher(error.getMessage());
+                assertThat(elapsed.find()).isTrue();
+                assertThat(Long.parseLong(elapsed.group(1))).isBetween(20L,
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+            });
         fixture.server().verify();
     }
 

@@ -79,7 +79,14 @@ public class FirestoreEventCatalogRepository implements EventCatalogRepository {
                         transaction.create(repair.copy(), repair.original().getData());
                         notices.add(repair);
                     }
-                    for (var event : inserted) transaction.set(firestore.collection(collection).document(event.id()), toDocument(event));
+                    for (var event : inserted) {
+                        transaction.set(firestore.collection(collection).document(event.id()), toDocument(event));
+                        // A replacement must get a fresh job even if the old worker is still leased.
+                        // Its token is fenced; finish() releases only that worker's own gate.
+                        if (event.validationStatus() == ValidationStatus.PENDING)
+                            transaction.set(firestore.collection(collection + "-validation").document(event.id()),
+                                FirestoreValidationJobs.initial(Instant.now()));
+                    }
                     return new CreationReceipt(new WriteResult(List.copyOf(actual), List.copyOf(inserted)), notices);
                 }).get();
                 // Log only committed new quarantine copies, never transaction retries.

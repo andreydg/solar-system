@@ -52,9 +52,13 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(JplHorizonsException.class)
     public ResponseEntity<Map<String, String>> handleJplException(JplHorizonsException ex) {
-        log.error("JPL Horizons client error: {}", ex.getMessage());
+        if (ex.isTransient()) log.warn("Transient JPL Horizons client error: {}", ex.getMessage());
+        else log.error("JPL Horizons client error", ex);
+        String message = ex.isTransient()
+            ? "Ephemeris temporarily unavailable. Please try again later."
+            : "Ephemeris request could not be completed.";
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-            .contentType(org.springframework.http.MediaType.APPLICATION_JSON).body(Map.of("error", "JPL Horizons service error", "message", ex.getMessage()));
+            .contentType(org.springframework.http.MediaType.APPLICATION_JSON).body(Map.of("error", "JPL Horizons service error", "message", message));
     }
 
     @ExceptionHandler(EventCatalogStorageException.class)

@@ -126,6 +126,11 @@ public class ApiGuardFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
+        // Durable distributed leases, not visitor quotas, bound the authenticated worker.
+        if (path.equals("/api/admin/validation/drain")) {
+            chain.doFilter(request, response);
+            return;
+        }
         boolean expensive = path.equals("/api/events/generate");
         boolean jplBound = administrative || path.startsWith("/api/ephemeris/position")
             || expensive && smallBodyGeneration(body);
