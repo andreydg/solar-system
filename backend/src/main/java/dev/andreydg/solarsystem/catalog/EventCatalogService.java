@@ -126,69 +126,6 @@ public class EventCatalogService {
         return new CatalogPage(page.events().stream().filter(this::isStoredEventValid).toList(), page.nextCursor());
     }
 
-    public CatalogEvent storeValidation(
-        CatalogEvent event,
-        Instant validatedTimeUtc,
-        Double validatedDistanceAu,
-        Double validatedAngleDeg,
-        Double validatedMagnitude,
-        Double jplDeltaKm,
-        String summary
-    ) {
-        CatalogEvent updated = new CatalogEvent(
-            event.id(),
-            event.type(),
-            event.bodyA(),
-            event.bodyB(),
-            event.computedTimeUtc(),
-            event.computedDistanceAu(),
-            event.computedAngleDeg(),
-            event.computedMagnitude(),
-            event.computedSource(),
-            validatedTimeUtc,
-            validatedDistanceAu,
-            validatedAngleDeg,
-            validatedMagnitude,
-            "JPL_HORIZONS",
-            ValidationStatus.VALIDATED,
-            event.rangeStartUtc(),
-            event.rangeEndUtc(),
-            event.generatedAtUtc(),
-            Instant.now(),
-            jplDeltaKm,
-            summary
-        );
-        repository.upsert(updated);
-        return updated;
-    }
-
-    public CatalogEvent storeValidationFailure(CatalogEvent event, String summary) {
-        CatalogEvent updated = new CatalogEvent(
-            event.id(),
-            event.type(),
-            event.bodyA(),
-            event.bodyB(),
-            event.computedTimeUtc(),
-            event.computedDistanceAu(),
-            event.computedAngleDeg(),
-            event.computedMagnitude(),
-            event.computedSource(),
-            event.validatedTimeUtc(),
-            event.validatedDistanceAu(),
-            event.validatedAngleDeg(),
-            event.validatedMagnitude(),
-            event.validatedSource(),
-            ValidationStatus.FAILED,
-            event.rangeStartUtc(),
-            event.rangeEndUtc(),
-            event.generatedAtUtc(),
-            Instant.now(),
-            event.jplDeltaKm(),
-            summary
-        );
-        repository.upsert(updated);
-        return updated;
-    }
 
     public Optional<CatalogEvent> findById(String id) {
         return repository.findById(id);

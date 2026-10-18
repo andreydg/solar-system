@@ -15,7 +15,7 @@ export default defineConfig({
     launchOptions: { args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] },
   },
   webServer: {
-    command: `java -jar backend/target/solar-system-backend-0.1.0.jar --server.port=${port} --solar-system.storage=in-memory --solar-system.trajectories.prewarm-enabled=false --solar-system.jpl.async-validation-enabled=false`,
+    command: `java -jar backend/target/solar-system-backend-0.1.0.jar --server.port=${port} --solar-system.storage=in-memory --solar-system.jpl.async-validation-enabled=false`,
     url: baseURL + "/actuator/health",
     reuseExistingServer: false,
     timeout: 60_000,

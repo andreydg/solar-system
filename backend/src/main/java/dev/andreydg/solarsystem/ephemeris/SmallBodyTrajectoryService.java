@@ -5,16 +5,10 @@ import dev.andreydg.solarsystem.config.TrajectoryCacheProperties;
 import dev.andreydg.solarsystem.ephemeris.JplEphemerisProvider.TrajectorySample;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -22,7 +16,6 @@ public class SmallBodyTrajectoryService {
     /** Target samples per half-orbit window; high count is fine once cached on disk. */
     public static final int ORBIT_SAMPLE_COUNT = 19_200;
 
-    private static final Logger log = LoggerFactory.getLogger(SmallBodyTrajectoryService.class);
 
     private final JplEphemerisProvider jplEphemerisProvider;
     private final TrajectoryFileStore trajectoryFileStore;
@@ -31,16 +24,22 @@ public class SmallBodyTrajectoryService {
 
     private final ConcurrentMap<BodyId, java.util.concurrent.CompletableFuture<List<TrajectorySample>>> loading = new ConcurrentHashMap<>();
     private final ConcurrentMap<BodyId, FailedLoad> failures = new ConcurrentHashMap<>();
+    private final java.time.Clock clock;
     private record FailedLoad(Instant retryAfter, RuntimeException error) {}
 
-    @org.springframework.beans.factory.annotation.Value("${solar-system.trajectories.prewarm-enabled:true}")
-    private boolean prewarmEnabled = true;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public SmallBodyTrajectoryService(
         JplEphemerisProvider jplEphemerisProvider,
         TrajectoryFileStore trajectoryFileStore,
         TrajectoryCacheProperties trajectoryCacheProperties
     ) {
+        this(jplEphemerisProvider, trajectoryFileStore, trajectoryCacheProperties, java.time.Clock.systemUTC());
+    }
+
+    SmallBodyTrajectoryService(JplEphemerisProvider jplEphemerisProvider, TrajectoryFileStore trajectoryFileStore,
+        TrajectoryCacheProperties trajectoryCacheProperties, java.time.Clock clock) {
+        this.clock = clock;
         this.jplEphemerisProvider = jplEphemerisProvider;
         this.trajectoryFileStore = trajectoryFileStore;
         this.trajectoryCacheProperties = trajectoryCacheProperties;
@@ -60,7 +59,7 @@ public class SmallBodyTrajectoryService {
         }
 
         FailedLoad failed = failures.get(body);
-        if (failed != null && Instant.now().isBefore(failed.retryAfter())) throw failed.error();
+        if (failed != null && clock.instant().isBefore(failed.retryAfter())) throw failed.error();
         var mine = new java.util.concurrent.CompletableFuture<List<TrajectorySample>>();
         var existing = loading.putIfAbsent(body, mine);
         if (existing != null) {
@@ -74,14 +73,14 @@ public class SmallBodyTrajectoryService {
             // Recheck after winning ownership: another load may have just completed.
             cached = cache.get(body);
             if (cached != null) { mine.complete(cached); return cached; }
-            List<TrajectorySample> loaded = loadTrajectory(body);
+            List<TrajectorySample> loaded = List.copyOf(loadTrajectory(body));
             if (loaded.isEmpty()) throw new dev.andreydg.solarsystem.jpl.JplHorizonsException("Empty trajectory", true);
             cache.put(body, loaded);
             failures.remove(body);
             mine.complete(loaded);
             return loaded;
         } catch (RuntimeException ex) {
-            failures.put(body, new FailedLoad(Instant.now().plusSeconds(10), ex));
+            failures.put(body, new FailedLoad(clock.instant().plusSeconds(10), ex));
             mine.completeExceptionally(ex);
             throw ex;
         } catch (Error fatal) {
@@ -97,7 +96,7 @@ public class SmallBodyTrajectoryService {
         List<TrajectorySample> trajectory = cache.get(body);
         if (trajectory == null || trajectory.isEmpty()) {
             trajectory = getTrajectory(body);
-            if (trajectory.isEmpty()) {
+            if (trajectory == null || trajectory.isEmpty()) {
                 return Optional.empty();
             }
         }
@@ -170,45 +169,12 @@ public class SmallBodyTrajectoryService {
         return Optional.of(lerp(start.position(), end.position(), ratio));
     }
 
-    public boolean covers(BodyId body, Instant timeUtc) {
-        List<TrajectorySample> trajectory = cache.get(body);
-        if (trajectory == null || trajectory.isEmpty()) {
-            return false;
-        }
-
-        return !timeUtc.isBefore(trajectory.getFirst().timeUtc())
-            && !timeUtc.isAfter(trajectory.getLast().timeUtc());
-    }
-
-    @Async
-    @EventListener(ApplicationReadyEvent.class)
-    public void prewarmTrajectories() {
-        if (!prewarmEnabled) return;
-        Arrays.stream(BodyId.values())
-            .filter(BodyId::isSmallBody)
-            .forEach(body -> {
-                try {
-                    if (!trajectoryCacheProperties.refreshFromJpl()) {
-                        Thread.sleep(100);
-                    } else {
-                        Thread.sleep(1_500);
-                    }
-                    List<TrajectorySample> trajectory = getTrajectory(body);
-                    log.info("Prewarmed trajectory for {} ({} samples)", body.apiValue(), trajectory.size());
-                } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
-                } catch (RuntimeException exception) {
-                    log.warn("Failed to prewarm trajectory for {}: {}", body.apiValue(), exception.getMessage());
-                }
-            });
-    }
-
     private List<TrajectorySample> loadTrajectory(BodyId body) {
         if (!trajectoryCacheProperties.refreshFromJpl()) {
             Optional<List<TrajectorySample>> fromFile = trajectoryFileStore.load(body);
-            if (fromFile.isPresent()) {
-                return fromFile.get();
-            }
+            if (fromFile.isPresent()) return fromFile.get();
+            // Bundled data makes normal cold starts independent of Horizons/network.
+            return trajectoryFileStore.loadBundled(body);
         }
 
         Instant epoch = body.trajectoryEpoch();

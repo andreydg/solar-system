@@ -1,6 +1,6 @@
 import { OrbitControls } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { BODY_BY_ID, isComet, type BodyId, type BodyPosition } from "../domain/solarSystem";
@@ -69,7 +69,7 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
   const latestPositions = useRef(positions);
   const latestHighlighted = useRef(highlightedBodies);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     latestPositions.current = positions;
     latestHighlighted.current = highlightedBodies;
   }, [positions, highlightedBodies]);

@@ -23,7 +23,6 @@ class JplAcceptanceTests {
         synthetic(time -> new Vector3Au(1, 1, 0));
         when(catalog.findById("event")).thenReturn(Optional.of(event(EventType.OPPOSITION, BodyId.MARS)));
         assertThatThrownBy(() -> validation.validateEvent("event")).isInstanceOf(JplHorizonsException.class);
-        verify(catalog, never()).storeValidation(any(), any(), any(), any(), any(), any(), any());
     }
     @Test void transitRequiresDiskOverlapAndThePlanetInFrontOfTheSun() {
         when(catalog.findById("event")).thenReturn(Optional.of(event(EventType.TRANSIT, BodyId.MERCURY)));

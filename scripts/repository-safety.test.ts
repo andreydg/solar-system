@@ -188,3 +188,10 @@ it("event navigation documentation distinguishes snapshot replay from fresh guar
   expect(readme).toContain("Revisited snapshots are not refreshed from the catalog");
   expect(readme).toContain("a fresh search starts one day after/before the shown event");
 });
+it("trajectory retry documentation distinguishes rate limits from other failures", () => {
+  const readme = source("README.md").replace(/\s+/g, " ");
+  expect(readme).toContain("Non-429 transient failures get at most two automatic retries");
+  expect(readme).toContain("two minutes (at most 30 attempts)");
+  expect(readme).toContain("counted independently of HTTP 429 waits; interleaving rate limits never resets that counter.");
+  expect(readme).toContain("45-second timeout");
+});

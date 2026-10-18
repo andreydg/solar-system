@@ -1,7 +1,9 @@
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Html, Line, useCursor, useTexture } from "@react-three/drei";
-import { useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, Suspense, type RefObject } from "react";
 import * as THREE from "three";
+import type { Line2 } from "three-stdlib";
+import SceneMotion from "./SceneMotion";
 import { BODIES, BODY_BY_ID, type BodyId, type BodyPosition, distanceAu, isComet, isSmallBody } from "../domain/solarSystem";
 import { OVERVIEW_CAMERA_POSITION } from "../lib/cameraViews";
 import { getNorthPole, sampleTrajectory } from "../lib/ephemeris";
@@ -85,6 +87,7 @@ const atmosphereFragmentShader = `
 
 export type SolarSystemSceneProps = {
   currentTime: Date;
+  timeRef: RefObject<Date>;
   focusedBody: BodyId | null;
   highlightedBodies: BodyId[];
   positions: BodyPosition[];
@@ -96,29 +99,33 @@ export type SolarSystemSceneProps = {
 
 export default function SolarSystemScene({
   currentTime,
+  timeRef,
   focusedBody,
   highlightedBodies,
-  positions,
+  positions: renderedPositions,
   smallBodyTrajectories,
   visibleBodies,
   onFocusBody,
 }: SolarSystemSceneProps) {
+  const positions = useMemo(() => renderedPositions.map(p => ({ ...p })), [renderedPositions]);
   const highlightedSet = useMemo(() => new Set(highlightedBodies), [highlightedBodies]);
   // Event bodies' labels win over the Sun's, which wins over the rest (bigger bodies first). The
   // focused body has no label: it would only cover the close-up.
   const labels: LabelSpec[] = [
-    { key: "sun", name: "Sun", anchor: [0, SUN_RADIUS, 0], highlighted: false, priority: 2e6, onSelect: () => onFocusBody(null) },
+    { key: "sun", name: "Sun", anchor: () => [0, SUN_RADIUS, 0], highlighted: false, priority: 2e6, onSelect: () => onFocusBody(null) },
     ...positions
       .filter((position) => position.body !== focusedBody)
       .map((position) => {
         const body = BODY_BY_ID[position.body];
         const highlighted = highlightedSet.has(position.body);
-        const [x, y, z] = toScenePoint(position.positionAu);
         const radius = getVisualRadius(body.radiusKm, highlighted, isComet(position.body));
         return {
           key: position.body,
           name: body.name,
-          anchor: [x, y + radius, z] as ScenePoint,
+          anchor: (): ScenePoint => {
+            const [x, y, z] = toScenePoint(position.positionAu);
+            return [x, y + radius, z];
+          },
           highlighted,
           priority: (highlighted ? 3e6 : 0) + body.radiusKm,
           onSelect: () => onFocusBody(position.body),
@@ -134,6 +141,7 @@ export default function SolarSystemScene({
           inner planets out to white and left the ice giants black. */}
       <pointLight color="#fff2c0" decay={0} intensity={5} position={[0, 0, 0]} />
       <CelestialSphere />
+      <SceneMotion timeRef={timeRef} positions={positions} trajectories={smallBodyTrajectories} />
 
       <Suspense fallback={null}>
         <Sun onSelect={() => onFocusBody(null)} />
@@ -268,6 +276,8 @@ type BodyProps = {
 export function Comet({ highlighted, position, onSelect }: BodyProps) {
   const body = BODY_BY_ID[position.body];
   const scenePosition = toScenePoint(position.positionAu);
+  const group = useRef<THREE.Group>(null);
+  useFrame(() => { group.current?.position.set(...toScenePoint(position.positionAu)); }, -1.5);
   const nucleusRadius = getVisualRadius(body.radiusKm, highlighted, true);
   const distanceAu = Math.hypot(
     position.positionAu.x,
@@ -277,6 +287,7 @@ export function Comet({ highlighted, position, onSelect }: BodyProps) {
   const tailLength = Math.min(3.4, Math.max(0.9, 1.35 / Math.max(distanceAu, 0.25))) * AU_TO_SCENE_UNITS;
   const tailWidth = nucleusRadius * 1.8;
   const tailDirection = normalizeVector(scenePosition);
+  const tails = useRef<(THREE.Mesh | null)[]>([]);
   const tailQuaternion = useMemo(() => {
     const quaternion = new THREE.Quaternion();
     quaternion.setFromUnitVectors(
@@ -285,9 +296,20 @@ export function Comet({ highlighted, position, onSelect }: BodyProps) {
     );
     return quaternion;
   }, [tailDirection]);
+  useFrame(() => {
+    const point = toScenePoint(position.positionAu);
+    const direction = new THREE.Vector3(...point).normalize();
+    const length = THREE.MathUtils.clamp(1.35 / Math.max(Math.hypot(...point) / AU_TO_SCENE_UNITS, 0.25), 0.9, 3.4) * AU_TO_SCENE_UNITS;
+    tails.current.forEach((tail, i) => {
+      if (!tail) return;
+      tail.position.copy(direction).multiplyScalar(length * (i === 0 ? 0.45 : 0.72));
+      tail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+      tail.scale.y = length / tailLength;
+    });
+  }, -1.5);
 
   return (
-    <group position={scenePosition}>
+    <group ref={group} position={scenePosition}>
       {highlighted ? (
         <>
           <mesh>
@@ -300,7 +322,7 @@ export function Comet({ highlighted, position, onSelect }: BodyProps) {
           </mesh>
         </>
       ) : null}
-      <mesh position={scaleVector(tailDirection, tailLength * 0.45)} quaternion={tailQuaternion}>
+      <mesh ref={mesh => { tails.current[0] = mesh; }} position={scaleVector(tailDirection, tailLength * 0.45)} quaternion={tailQuaternion}>
         <coneGeometry args={[tailWidth, tailLength, 24, 1, true]} />
         <meshBasicMaterial
           color={body.color}
@@ -310,7 +332,7 @@ export function Comet({ highlighted, position, onSelect }: BodyProps) {
           side={THREE.DoubleSide}
         />
       </mesh>
-      <mesh position={scaleVector(tailDirection, tailLength * 0.72)} quaternion={tailQuaternion}>
+      <mesh ref={mesh => { tails.current[1] = mesh; }} position={scaleVector(tailDirection, tailLength * 0.72)} quaternion={tailQuaternion}>
         <coneGeometry args={[tailWidth * 0.55, tailLength * 0.75, 20, 1, true]} />
         <meshBasicMaterial
           color="#e2e8f0"
@@ -337,6 +359,8 @@ export function Comet({ highlighted, position, onSelect }: BodyProps) {
 export function Planet({ highlighted, position, onSelect }: BodyProps) {
   const body = BODY_BY_ID[position.body];
   const scenePosition = toScenePoint(position.positionAu);
+  const group = useRef<THREE.Group>(null);
+  useFrame(() => { group.current?.position.set(...toScenePoint(position.positionAu)); }, -1.5);
   const visualRadius = getVisualRadius(body.radiusKm, highlighted, false);
   const textureUrl = PLANET_TEXTURES[position.body] || FALLBACK_TEXTURE;
   const texture = useTexture(textureUrl, (loaded) => {
@@ -358,7 +382,7 @@ export function Planet({ highlighted, position, onSelect }: BodyProps) {
   const atmosphere = ATMOSPHERES[position.body];
 
   return (
-    <group position={scenePosition}>
+    <group ref={group} position={scenePosition}>
       {highlighted ? (
         <>
           <mesh>
@@ -436,7 +460,7 @@ type LabelSpec = {
   key: string;
   name: string;
   /** The top of the body; the label sits just above it. */
-  anchor: ScenePoint;
+  anchor: () => ScenePoint;
   highlighted: boolean;
   priority: number;
   onSelect: () => void;
@@ -449,20 +473,23 @@ type LabelSpec = {
  */
 function BodyLabels({ labels }: { labels: LabelSpec[] }) {
   const buttons = useRef(new Map<string, HTMLButtonElement>());
+  const anchors = useRef(new Map<string, THREE.Group>());
   const latestLabels = useRef(labels);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     latestLabels.current = labels;
   }, [labels]);
 
   useFrame(({ camera, size }) => {
     const boxes: LabelBox[] = [];
     for (const label of latestLabels.current) {
+      const anchor = label.anchor();
+      anchors.current.get(label.key)?.position.set(...anchor);
       const button = buttons.current.get(label.key);
       if (!button) {
         continue;
       }
-      const projected = scratchVector.set(...label.anchor).project(camera);
+      const projected = scratchVector.set(...anchor).project(camera);
       if (projected.z > 1) {
         button.style.visibility = "hidden"; // behind the camera
         continue;
@@ -477,10 +504,13 @@ function BodyLabels({ labels }: { labels: LabelSpec[] }) {
     for (const { key } of boxes) {
       buttons.current.get(key)!.style.visibility = visible.has(key) ? "visible" : "hidden";
     }
-  });
+  }, -0.25);
 
   return labels.map((label) => (
-    <Html center key={label.key} position={label.anchor}>
+    <group key={label.key} position={label.anchor()} ref={group => {
+      if (group) anchors.current.set(label.key, group); else anchors.current.delete(label.key);
+    }}>
+      <Html center>
       <button
         className={label.highlighted ? "planet-label planet-label-highlighted" : "planet-label"}
         ref={(button) => {
@@ -501,7 +531,8 @@ function BodyLabels({ labels }: { labels: LabelSpec[] }) {
       >
         {label.name}
       </button>
-    </Html>
+      </Html>
+    </group>
   ));
 }
 
@@ -616,6 +647,24 @@ function EventPairLine({
   highlightedBodies: BodyId[];
   positions: BodyPosition[];
 }) {
+  const line = useRef<Line2>(null);
+  const label = useRef<THREE.Group>(null);
+  useFrame(() => {
+    const a = positions.find(p => p.body === highlightedBodies[0]);
+    const b = positions.find(p => p.body === highlightedBodies[1]);
+    if (!a || !b) return;
+    const pa = toScenePoint(a.positionAu), pb = toScenePoint(b.positionAu);
+    const geometry = line.current?.geometry;
+    if (geometry?.attributes.instanceStart) {
+      geometry.attributes.instanceStart.setXYZ(0, ...pa);
+      geometry.attributes.instanceEnd.setXYZ(0, ...pb);
+      geometry.attributes.instanceStart.needsUpdate = true;
+      geometry.attributes.instanceEnd.needsUpdate = true;
+      geometry.computeBoundingSphere();
+      geometry.computeBoundingBox();
+    }
+    label.current?.position.set((pa[0]+pb[0])/2, (pa[1]+pb[1])/2, (pa[2]+pb[2])/2);
+  }, -1.5);
   if (highlightedBodies.length !== 2) {
     return null;
   }
@@ -639,15 +688,18 @@ function EventPairLine({
   return (
     <>
       <Line
+        ref={line}
         color="#93c5fd"
         lineWidth={1.5}
         opacity={0.75}
         points={[pointA, pointB]}
         transparent
       />
-      <Html center position={midpoint}>
+      <group ref={label} position={midpoint}>
+      <Html center>
         <span className="pair-distance-label">{separationAu.toFixed(4)} AU</span>
       </Html>
+      </group>
     </>
   );
 }

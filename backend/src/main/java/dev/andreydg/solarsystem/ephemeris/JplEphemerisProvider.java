@@ -6,11 +6,10 @@ import dev.andreydg.solarsystem.jpl.JplHorizonsException;
 import dev.andreydg.solarsystem.jpl.JplVector;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -18,7 +17,14 @@ public class JplEphemerisProvider implements EphemerisProvider {
     private static final Duration BATCH_WINDOW = Duration.ofDays(365L * 50);
 
     private final JplHorizonsClient horizonsClient;
-    private final ConcurrentMap<CacheKey, Vector3Au> cache = new ConcurrentHashMap<>();
+    static final int MAX_POINT_CACHE = 4096;
+    private final Map<CacheKey, Vector3Au> cache = new LinkedHashMap<>(128, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<CacheKey, Vector3Au> eldest) {
+            return size() > MAX_POINT_CACHE;
+        }
+    };
+    private final java.util.concurrent.ConcurrentMap<CacheKey, java.util.concurrent.CompletableFuture<Vector3Au>> loading = new java.util.concurrent.ConcurrentHashMap<>();
+    int cachedPointCount() { synchronized (cache) { return cache.size(); } }
 
     public JplEphemerisProvider(JplHorizonsClient horizonsClient) {
         this.horizonsClient = horizonsClient;
@@ -30,8 +36,33 @@ public class JplEphemerisProvider implements EphemerisProvider {
             throw new IllegalArgumentException("JPL ephemeris is only configured for small bodies: " + body);
         }
 
-        CacheKey key = new CacheKey(body, timeUtc.truncatedTo(ChronoUnit.HOURS));
-        return cache.computeIfAbsent(key, ignored -> horizonsClient.vector(body, timeUtc).positionAu());
+        CacheKey key = new CacheKey(body, timeUtc);
+        synchronized (cache) { if (cache.containsKey(key)) return cache.get(key); }
+        var mine = new java.util.concurrent.CompletableFuture<Vector3Au>();
+        var existing = loading.putIfAbsent(key, mine);
+        if (existing != null) {
+            try { return existing.join(); }
+            catch (java.util.concurrent.CompletionException ex) {
+                if (ex.getCause() instanceof Error fatal) throw fatal;
+                throw (RuntimeException) ex.getCause();
+            }
+        }
+        try {
+            synchronized (cache) {
+                if (cache.containsKey(key)) { var value = cache.get(key); mine.complete(value); return value; }
+            }
+            // No cache monitor is held across remote I/O.
+            var value = horizonsClient.vector(body, timeUtc).positionAu();
+            synchronized (cache) { cache.put(key, value); }
+            mine.complete(value);
+            return value;
+        } catch (RuntimeException | Error ex) {
+            mine.completeExceptionally(ex);
+            throw ex;
+        } finally {
+            mine.completeExceptionally(new IllegalStateException("Position load did not complete"));
+            loading.remove(key, mine);
+        }
     }
 
     public List<HeliocentricDistanceSample> heliocentricDistanceSamples(
@@ -70,10 +101,6 @@ public class JplEphemerisProvider implements EphemerisProvider {
             try {
                 for (JplVector vector : horizonsClient.vectors(body, windowStart, windowEnd, formatStep(step))) {
                     Vector3Au position = vector.positionAu();
-                    cache.put(
-                        new CacheKey(body, vector.requestedTimeUtc().truncatedTo(ChronoUnit.HOURS)),
-                        position
-                    );
                     if (!samples.isEmpty()) {
                         TrajectorySample last = samples.getLast();
                         if (last.timeUtc().equals(vector.requestedTimeUtc())) {

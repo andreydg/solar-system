@@ -1,5 +1,5 @@
 export class HttpError extends Error {
-  constructor(public readonly status: number, message: string) { super(message); }
+  constructor(public readonly status: number, message: string, public readonly retryAfterMs?: number) { super(message); }
 }
 export class NetworkError extends Error {}
 export class RequestTimeoutError extends Error {
@@ -39,7 +39,10 @@ export async function fetchJson<T>(url: string, options: RequestInit = {}, timeo
         const body = await response.json() as Record<string, unknown>;
         if (typeof body.message === "string") message = body.message;
       } catch { /* An HTTP error need not include JSON. */ }
-      throw new HttpError(response.status, message);
+      const retry = response.headers.get("Retry-After");
+      const retryAfterMs = retry === null ? undefined : /^\d+$/.test(retry)
+        ? Number(retry) * 1000 : Math.max(0, Date.parse(retry) - Date.now());
+      throw new HttpError(response.status, message, Number.isFinite(retryAfterMs) ? retryAfterMs : undefined);
     }
     // Parsing/programming errors are not relabelled as network failures.
     return { data: await response.json() as T, headers: response.headers };
