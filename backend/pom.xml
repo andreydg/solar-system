@@ -99,6 +99,7 @@
         <profile>
             <id>integration-tests</id>
             <properties>
+                <test.groups>integration</test.groups>
                 <test.excludedGroups>firestore</test.excludedGroups>
             </properties>
         </profile>

@@ -23,7 +23,7 @@ public class FirestoreConfig {
 
         if (StringUtils.hasText(properties.emulatorHost())) {
             builder
-                .setHost(properties.emulatorHost())
+                .setEmulatorHost(properties.emulatorHost())
                 .setCredentials(new EmulatorCredentials());
         } else {
             builder.setCredentials(GoogleCredentials.getApplicationDefault());

@@ -24,7 +24,7 @@ class FirestoreBaselineTests {
                 time, 1.0, null, null, "TEST", null, null, null, null, null,
                 ValidationStatus.PENDING, time.minusSeconds(86400), time.plusSeconds(86400), time,
                 null, null, null);
-            repository.upsertAll(List.of(event));
+            repository.createMissing(List.of(event)).stored();
             assertThat(repository.findById(event.id())).contains(event);
         }
     }

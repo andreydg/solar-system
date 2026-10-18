@@ -13,7 +13,6 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
@@ -43,6 +42,7 @@ public class EventCatalogService {
     private final CompositeEphemerisProvider ephemerisProvider;
     private final EventCatalogRepository repository;
     private final ApplicationEventPublisher eventPublisher;
+    private final EmptyWindowCache emptyWindows = new EmptyWindowCache(java.time.Clock.systemUTC());
 
     public EventCatalogService(
         CompositeEphemerisProvider ephemerisProvider,
@@ -54,25 +54,6 @@ public class EventCatalogService {
         this.eventPublisher = eventPublisher;
     }
 
-    public List<CatalogEvent> query(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
-        CatalogLimits.checkRange(from, to);
-        validateRequest(type, bodyA, bodyB);
-        List<CatalogEvent> events = repository.find(type, bodyA, bodyB, from, to).stream()
-            .filter(this::isStoredEventValid)
-            .toList();
-        List<String> retryableIds = events.stream()
-            .filter(event -> event.validationStatus() == ValidationStatus.FAILED)
-            .filter(event -> event.type().supportsJplValidation())
-            .map(CatalogEvent::id)
-            .toList();
-
-        if (!retryableIds.isEmpty()) {
-            eventPublisher.publishEvent(new CatalogEventsGeneratedEvent(retryableIds));
-        }
-
-        return events;
-    }
-
     public List<CatalogEvent> generate(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
         CatalogLimits.checkRange(from, to);
         try (var budget = GenerationBudget.start()) {
@@ -82,6 +63,8 @@ public class EventCatalogService {
 
     private List<CatalogEvent> generateWithinBudget(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
         validateRequest(type, bodyA, bodyB);
+        var window = new EmptyWindowCache.Key(type, CatalogQuery.pairKey(bodyA, bodyB), from, to);
+        if (emptyWindows.contains(window)) return List.of();
         BodyPair pair = BodyPair.of(bodyA, bodyB);
         List<CatalogEvent> events = switch (type) {
             case CLOSEST_APPROACH -> generateExtremalApproaches(
@@ -120,19 +103,11 @@ public class EventCatalogService {
             throw new IllegalArgumentException("Too many events; choose a smaller date window");
         }
 
-        List<CatalogEvent> existingEvents = repository.find(type, bodyA, bodyB, from, to);
-        Map<String, CatalogEvent> existingById = existingEvents.stream()
-            .collect(Collectors.toMap(CatalogEvent::id, e -> e, (first, second) -> first));
+        var receipt = repository.createMissing(validEvents);
+        List<CatalogEvent> stored = receipt.stored();
 
-        List<CatalogEvent> eventsToStore = validEvents.stream()
-            .filter(event -> !existingById.containsKey(event.id()))
-            .toList();
-
-        if (!eventsToStore.isEmpty()) {
-            repository.upsertAll(eventsToStore);
-        }
-
-        List<String> validatableIds = eventsToStore.stream()
+        List<String> validatableIds = receipt.created().stream()
+            .filter(event -> event.validationStatus() == ValidationStatus.PENDING)
             .filter(event -> event.type().supportsJplValidation())
             .map(CatalogEvent::id)
             .toList();
@@ -141,9 +116,9 @@ public class EventCatalogService {
             eventPublisher.publishEvent(new CatalogEventsGeneratedEvent(validatableIds));
         }
 
-        return validEvents.stream()
-            .map(event -> existingById.getOrDefault(event.id(), event))
-            .toList();
+        if (validEvents.isEmpty()) emptyWindows.remember(window);
+
+        return stored;
     }
 
     public List<CatalogEvent> listValidatedEvents(
@@ -151,17 +126,13 @@ public class EventCatalogService {
         Optional<BodyId> bodyA,
         Optional<BodyId> bodyB
     ) {
-        return repository.findAllValidated().stream()
-            .filter(this::isStoredEventValid)
-            .filter(event -> type.isEmpty() || event.type() == type.get())
-            .filter(event -> bodyA.isEmpty() || involvesBody(event, bodyA.get()))
-            .filter(event -> bodyB.isEmpty() || involvesBody(event, bodyB.get()))
-            .sorted(Comparator.comparing(CatalogEvent::displayTimeUtc))
-            .toList();
+        return search(new CatalogQuery(type.orElse(null), bodyA.orElse(null), bodyB.orElse(null),
+            CatalogLimits.MIN_TIME, CatalogLimits.MAX_TIME.minusNanos(1), true, false, 100, null)).events();
     }
 
-    private static boolean involvesBody(CatalogEvent event, BodyId body) {
-        return event.bodyA() == body || event.bodyB() == body;
+    public CatalogPage search(CatalogQuery query) {
+        var page = repository.search(query);
+        return new CatalogPage(page.events().stream().filter(this::isStoredEventValid).toList(), page.nextCursor());
     }
 
     public CatalogEvent storeValidation(

@@ -85,3 +85,45 @@ it("Vitest includes the manual-mock registration and traversal fixes", () => {
     expect(version[0] > 4 || (version[0] === 4 && (version[1] > 1 || (version[1] === 1 && version[2] >= 12)))).toBe(true);
   }
 });
+
+it("catalog runbook keeps rollout steps together and describes hidden immutable quarantine versions", () => {
+  const readme = source("README.md");
+  expect(readme).toContain("{updateSeconds}-{updateNanos}");
+  expect(readme).toContain("stays hidden from search and generation until repaired");
+  expect(readme).toContain("up to 2,000");
+  expect(readme.indexOf("4. Review")).toBeLessThan(readme.indexOf("Generation quarantines malformed originals"));
+  const steps = readme.slice(readme.indexOf("1. Back up"), readme.indexOf("Generation quarantines malformed originals"));
+  expect([...steps.matchAll(/^(\d+)\. /gm)].map(match => Number(match[1]))).toEqual([1, 2, 3, 4, 5]);
+  for (const step of steps.split(/(?=^\d+\. )/m)) {
+    for (const line of step.split("\n").slice(1)) {
+      expect(line.trim() === "" || line.startsWith("   "), "unindented paragraph splits rollout steps: " + line).toBe(true);
+    }
+  }
+  expect(readme).not.toContain("one lookahead document");
+  expect(readme).not.toContain("create-only transactions");
+  expect(readme).toContain("transactional existence checks and writes");
+  expect(readme).toContain("Finite numeric strings remain accepted");
+  expect(readme).toContain("including their string representations");
+  expect(source("backend/src/test/java/dev/andreydg/solarsystem/storage/CatalogNumericParsingTests.java"))
+    .toContain("nonFiniteNumbersAndTheirStringRepresentationsCannotEnterCatalogGeometry");
+  expect(readme).toMatch(/### API safety and operations\n\nGeneration\/query/);
+});
+
+it("catalog production repositories have no test-only bulk API or unused explicit imports", () => {
+  const directory = "backend/src/main/java/dev/andreydg/solarsystem/storage/";
+  expect(source(directory + "EventCatalogRepository.java")).not.toMatch(/\bupsertAll\s*\(/);
+  for (const file of ["FirestoreEventCatalogRepository.java", "InMemoryEventCatalogRepository.java"]) {
+    const text = source(directory + file);
+    const imports = [...text.matchAll(/^\s*import\s+(?:static\s+)?([\w.*\s]+);/gm)];
+    const body = text.replace(/^\s*import\s+[^;]+;/gm, "")
+      .replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, "")
+      .replace(/\s*\.\s*/g, ".");
+    for (const match of imports) {
+      const imported = match[1].replace(/\s+/g, "");
+      expect(imported, file + ": use explicit imports").not.toContain("*");
+      const simple = imported.split(".").at(-1)!;
+      // Qualified mentions do not consume an import, even with whitespace around dots.
+      expect(body, file + ": unused " + imported).toMatch(new RegExp("(?<![\\w.$])" + simple + "\\b"));
+    }
+  }
+});

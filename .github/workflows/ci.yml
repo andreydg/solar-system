@@ -7,7 +7,7 @@ on:
 
 jobs:
   firestore:
-    name: Firestore repository
+    name: Firestore repository and migration
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +32,8 @@ jobs:
             sleep 1
           done
           if [ "$ready" != true ]; then cat /tmp/firestore.log; exit 1; fi
+          mvn -B -f backend/pom.xml package -DskipTests
+          node scripts/test-migration.mjs
           mvn -B -f backend/pom.xml test -Pfirestore-tests
 
   backend:

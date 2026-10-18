@@ -26,13 +26,26 @@ class EventCatalogServiceTests {
     @Autowired
     private EventCatalogService service;
 
+    @Autowired private dev.andreydg.solarsystem.storage.EventCatalogRepository repository;
+
+    @Test void negativeCacheDoesNotResurrectInvalidStoredTransit() {
+        Instant from = Instant.parse("2035-01-01T00:00:00Z");
+        Instant to = Instant.parse("2036-01-01T00:00:00Z");
+        var bogus = new CatalogEvent("bogus-transit-review", EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from.plusSeconds(100),
+            null, 45.0, null, "VSOP", null, null, null, null, null,
+            dev.andreydg.solarsystem.catalog.ValidationStatus.PENDING, from, to, from, null, null, null);
+        repository.upsert(bogus);
+        assertThat(service.generate(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to)).isEmpty();
+        assertThat(service.generate(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to)).isEmpty();
+    }
+
     @Test
     void generatesAndQueriesClosestApproaches() {
         Instant from = Instant.parse("2026-01-01T00:00:00Z");
         Instant to = Instant.parse("2028-12-31T00:00:00Z");
 
         var generated = service.generate(EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS, from, to);
-        var queried = service.query(EventType.CLOSEST_APPROACH, BodyId.MARS, BodyId.EARTH, from, to);
+        var queried = service.search(new dev.andreydg.solarsystem.catalog.CatalogQuery(EventType.CLOSEST_APPROACH, BodyId.MARS, BodyId.EARTH, from, to, false, false, 1000, null)).events();
 
         assertThat(generated).isNotEmpty();
         assertThat(queried).hasSameSizeAs(generated);
@@ -45,7 +58,7 @@ class EventCatalogServiceTests {
         Instant to = Instant.parse("2028-12-31T00:00:00Z");
 
         var generated = service.generate(EventType.FARTHEST_APPROACH, BodyId.EARTH, BodyId.MARS, from, to);
-        var queried = service.query(EventType.FARTHEST_APPROACH, BodyId.MARS, BodyId.EARTH, from, to);
+        var queried = service.search(new dev.andreydg.solarsystem.catalog.CatalogQuery(EventType.FARTHEST_APPROACH, BodyId.MARS, BodyId.EARTH, from, to, false, false, 1000, null)).events();
 
         assertThat(generated).isNotEmpty();
         assertThat(queried).hasSameSizeAs(generated);
@@ -69,7 +82,7 @@ class EventCatalogServiceTests {
             Instant from = Instant.parse(year + "-01-01T00:00:00Z");
             Instant to = Instant.parse(Math.min(year + 25, 2117) + "-01-01T00:00:00Z");
             assertThat(service.generate(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to)).isEmpty();
-            assertThat(service.query(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to)).isEmpty();
+            assertThat(service.search(new dev.andreydg.solarsystem.catalog.CatalogQuery(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to, false, false, 1000, null)).events()).isEmpty();
         }
     }
 
