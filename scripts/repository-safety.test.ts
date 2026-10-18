@@ -165,3 +165,26 @@ it("scientific documentation states brightness filtering and repeated-orbit seam
   expect(times.slice(1).every((time, i) => time - times[i] === 86_400_000)).toBe(true);
   expect(fixtures).not.toContain("outer-pair ranges");
 });
+it("scene recovery docs state the bounded fresh-index check without an offline guarantee", () => {
+  expect(source("index.html")).toContain('id="root" data-app="solar-system-explorer"');
+  const readme = source("README.md").replace(/\s+/g, " ");
+  expect(readme).toContain("a module script plus either this app's index marker or its exact title");
+  expect(readme).toContain("two-second deadline");
+  expect(readme).toContain("Connectivity can still change after a successful");
+  expect(readme).not.toContain("navigates to the browser's offline error page");
+});
+it("browser test documentation names the wrapper default and real packaged API coverage", () => {
+  const readme = source("README.md").replace(/\s+/g, " ");
+  expect(readme).toContain("Packaging defaults to the repository's `./mvnw`");
+  expect(readme).toContain("real-catalog tests and the invalid-request check exercise the packaged backend");
+  expect(readme).not.toContain("if Maven is not on PATH");
+  expect(readme).not.toContain("API responses are explicit offline fixtures");
+});
+
+it("event navigation documentation distinguishes snapshot replay from fresh guarded searches", () => {
+  const readme = source("README.md").replace(/\s+/g, " ");
+  expect(readme).toContain("Next undoes Prev, and Prev undoes Next");
+  expect(readme).toContain("at most 100 events and resets when the date is edited (date field or Today) or event criteria change. Playback does not reset it.");
+  expect(readme).toContain("Revisited snapshots are not refreshed from the catalog");
+  expect(readme).toContain("a fresh search starts one day after/before the shown event");
+});

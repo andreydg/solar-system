@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { parseUtcInput } from "../lib/timeUtils";
 import ValidatedEventsOverlay from "./ValidatedEventsOverlay";
 import EventTypesOverlay from "./EventTypesOverlay";
 import {
@@ -85,6 +86,7 @@ export default function ControlPanel({
 }: ControlPanelProps) {
   const [showEventHelp, setShowEventHelp] = useState(false);
   const [showValidatedEvents, setShowValidatedEvents] = useState(false);
+  const [dateDraft, setDateDraft] = useState<string | null>(null);
   const searchDisabled = isSearching || !eventPairIsValid;
   const bodyBOptions = locksEarthAsBodyA ? getEventTargetOptions(eventType) : BODIES.map((body) => body.id);
 
@@ -102,14 +104,24 @@ export default function ControlPanel({
         </div>
 
         <label className="field">
-          <span>Jump to date</span>
+          <span>Jump to date (UTC)</span>
           <input
             type="datetime-local"
-            value={toDateTimeLocalValue(currentTime)}
-            onChange={(event) => onDateChange(new Date(event.target.value))}
+            min="1600-01-01T00:00"
+            max="2999-12-31T23:59"
+            value={dateDraft ?? toDateTimeLocalValue(currentTime)}
+            onFocus={() => setDateDraft(toDateTimeLocalValue(currentTime))}
+            onBlur={() => setDateDraft(null)}
+            aria-describedby="date-edit-help"
+            onChange={(event) => {
+              setDateDraft(event.target.value);
+              const time = parseUtcInput(event.target.value);
+              if (time) onDateChange(time);
+            }}
           />
         </label>
 
+        <small id="date-edit-help">Changing the date pauses playback and clears the selected event. Incomplete edits reset when you leave the field.</small>
         <div className="button-row">
           <button type="button" onClick={onPlayToggle}>
             {isPlaying ? "Pause" : "Play"}
@@ -165,6 +177,7 @@ export default function ControlPanel({
             </button>
           </span>
           <select
+            aria-label="Event type"
             value={eventType}
             onChange={(event) => onEventTypeChange(event.target.value as ApiCatalogEventType)}
           >

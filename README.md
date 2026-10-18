@@ -284,6 +284,17 @@ npm run test:e2e # optionally E2E_PORT=18081 if the default test port is occupie
 
 ## Scientific provenance and catalog version 2
 
+Browser regression tests run against the production jar with the real Vite build:
+`npx playwright install chromium && npm run test:e2e` (Java required).
+Packaging defaults to the repository's `./mvnw`; set `MAVEN=/absolute/path/to/mvn`
+to override it. Most scenarios use explicit offline API fixtures;
+real-catalog tests and the invalid-request check exercise the packaged backend. UI, assets,
+HTTP static serving, and browser timezone behavior are real. No live Horizons
+or Firestore access is needed. The test server defaults to port 18080
+(`E2E_PORT` overrides it) and shuts down automatically. `npm run test:package` seeds an obsolete
+asset, builds through the real packaging script, and checks that the jar contains
+exactly the current Vite output. Packaging clears Maven's old static resources.
+
 Candidates are approximate, not automatically JPL-validated. Planet candidates use
 JPL's [approximate Keplerian elements](https://ssd.jpl.nasa.gov/planets/approx_pos.html)
 (Table 1 in 1800–2050; Table 2 and outer-planet corrections outside that interval).
@@ -369,6 +380,36 @@ the entire public allowlisted sentence.
 The capture script prints raw numeric samples; normal tests use only the checked-in
 recordings and real application geometry/photometry, not network calls.
 
+### Date editing and browser recovery
+
+The UTC editor keeps incomplete keyboard input as a draft. Valid dates commit;
+leaving an incomplete field restores the last committed value. An explicit date
+jump (including Today) pauses playback and clears the selected event so the
+visible timestamp and highlighted event cannot silently disagree; the UI explains
+this next to the input. Network timeouts are 45 seconds per request and 90 seconds
+per search, longer than the server's 30-second generation calculation budget.
+Only actual fetch failures / server outages enable approximate browser fallback;
+programming errors and cancellations do not. Unsupported WebGL shows an actionable
+fallback, and Retry remounts only the scene, preserving the current view controls.
+
+If the lazy JavaScript chunk fails again on Retry (for example after deployment),
+the browser first probes "/" without caching, with a two-second deadline. Reload
+requires an online OS and a successful response containing a module script plus either
+this app's index marker or its exact title (the title fallback supports marker-less rollbacks). Offline, refused, hung, unsuccessful, and captive-portal responses
+keep the in-place alert and controls. Connectivity can still change after a successful
+probe. The browser test uses a five-second navigation deadline for the healthy reload.
+Fixed-event browser tests explicitly select their anchor even with the clock in 2030;
+Find/Prev navigation is also tested against the real packaged catalog.
+
+Next/Prev first replays visited event snapshots: Next undoes Prev, and Prev undoes
+Next, without another request or changing the saved validation/provenance status.
+This in-memory navigation history holds at most 100 events and resets when the date
+is edited (date field or Today) or event criteria change. Playback does not reset it. Revisited snapshots are not refreshed from the catalog.
+At the edge of history, a fresh search starts one day after/before the shown event.
+The library adds strict one-millisecond query bounds and excludes the current catalog
+ID, even if validation moved its timestamp by more than a day. These day guards can
+still skip densely spaced provisional events in a fresh search; replaying history
+returns to the exact event previously shown.
 
 ## Credits
 
