@@ -37,11 +37,11 @@ public enum BodyId {
             case MERCURY -> "199";
             case VENUS -> "299";
             case EARTH -> "399";
-            case MARS -> "499";
-            case JUPITER -> "599";
-            case SATURN -> "699";
-            case URANUS -> "799";
-            case NEPTUNE -> "899";
+            case MARS -> "4";
+            case JUPITER -> "5";
+            case SATURN -> "6";
+            case URANUS -> "7";
+            case NEPTUNE -> "8";
             case CERES -> "1;";
             case VESTA -> "4;";
             case ENCKE -> "90000091;";
@@ -55,7 +55,14 @@ public enum BodyId {
             case VESTA -> 1325.0;
             case ENCKE -> 1204.0;
             case HALLEY -> 27520.0;
-            default -> throw new IllegalArgumentException("No orbit period for " + this);
+            case MERCURY -> 87.969;
+            case VENUS -> 224.701;
+            case EARTH -> 365.256;
+            case MARS -> 686.980;
+            case JUPITER -> 4332.59;
+            case SATURN -> 10759.22;
+            case URANUS -> 30688.5;
+            case NEPTUNE -> 60182.0;
         };
     }
 

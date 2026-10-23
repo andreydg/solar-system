@@ -1,9 +1,9 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { defaultBodies, readSharedView, shareUrl, type SharedView } from "./lib/sharedView";
+import SceneBoundary from "./components/SceneBoundary";
+import { canUseBrowserFallback } from "./lib/http";
 import ControlPanel from "./components/ControlPanel";
 
-// The 3D scene pulls in three.js + @react-three/*, the bulk of the bundle. Load it lazily
-// so the control panel and initial shell paint without waiting on the heavy WebGL chunk.
-const SolarSystemScene = lazy(() => import("./components/SolarSystemScene"));
 import { BODIES, BODY_BY_ID, isSmallBody, type BodyId, type BodyPosition, type ClosestApproachResult } from "./domain/solarSystem";
 import {
   EVENT_TYPE_BY_ID,
@@ -13,43 +13,138 @@ import {
   type CatalogEventType,
 } from "./domain/eventTypes";
 import { findClosestApproach, getBodyPositions } from "./lib/ephemeris";
-import { getBackendBodyPositions } from "./lib/ephemerisApi";
-import { interpolateTrajectory, loadSmallBodyTrajectoriesWithRetry, type SmallBodyTrajectory } from "./lib/smallBodyTrajectory";
-import { findNextEvent, findPreviousEvent, isJplSource, SEARCH_HORIZON_YEARS, type CatalogEventResult } from "./lib/eventCatalogApi";
+import useSmallBodyTrajectories, { trajectoryCoverageNotice } from "./lib/useSmallBodyTrajectories";
+import { useSimulationClock } from "./lib/useSimulationClock";
+import { interpolateTrajectory } from "./lib/smallBodyTrajectory";
+import { findNextEvent, findPreviousEvent, SEARCH_HORIZON_YEARS, type CatalogEventResult } from "./lib/eventCatalogApi";
 import { addDays, addYears } from "./lib/timeUtils";
+import { createEventNavigation, recordEventNavigation, stepEventNavigation, type EventDirection } from "./lib/eventNavigation";
 
-const INITIAL_DATE = new Date();
-const DEFAULT_VISIBLE_BODIES = BODIES.filter((body) => !isSmallBody(body.id)).map((body) => body.id);
-// Debounce live small-body fetches so fast-forwarding (many simulated days per second)
-// collapses into a single backend request once playback settles.
-const LIVE_FETCH_DEBOUNCE_MS = 250;
+type DisplayEvent = (ClosestApproachResult & { angleDeg: null; magnitude: null; type: "closestApproach" }) | CatalogEventResult;
+type EventSnapshot = { result: DisplayEvent; status: string | null };
+
+type ViewEntry = {
+  solarView: 1; key: string; kind: "shared" | "unshared"; search: string;
+  playing: boolean; speed: number; eventResult: DisplayEvent | null; eventStatus: string | null;
+};
+// History identity only, not a security token; works on plain HTTP too.
+const viewEntryKey = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+function readViewEntry(value: unknown, expectedSearch?: string): { entry: ViewEntry; view: SharedView } | null {
+  if (!value || typeof value !== "object") return null;
+  const entry = value as ViewEntry;
+  if (entry.solarView !== 1 || typeof entry.key !== "string" || !["shared", "unshared"].includes(entry.kind)
+      || typeof entry.search !== "string" || typeof entry.playing !== "boolean"
+      || !Number.isFinite(entry.speed) || entry.speed <= 0) return null;
+  if (expectedSearch !== undefined && entry.search !== expectedSearch) return null;
+  const view = readSharedView(entry.search);
+  return view ? { entry, view } : null;
+}
 
 export default function App() {
-  const [currentTime, setCurrentTime] = useState(INITIAL_DATE);
-  const [isPlaying, setIsPlaying] = useState(true);
+  const [initialView] = useState(() => readSharedView(window.location.search));
+  const [initialEntry] = useState<ViewEntry | null>(() => readViewEntry(window.history.state, window.location.search)?.entry ?? (
+    initialView ? { solarView: 1, key: viewEntryKey(), kind: "shared",
+      search: new URL(shareUrl(initialView, window.location.origin)).search,
+      playing: false, speed: 10, eventResult: null, eventStatus: null } : null
+  ));
+  const [initialTime] = useState(() => initialView?.time ?? new Date());
+  const [isPlaying, setIsPlaying] = useState(() => !initialView && !window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   const [speedDaysPerSecond, setSpeedDaysPerSecond] = useState(10);
-  const [visibleBodies, setVisibleBodies] = useState<BodyId[]>(DEFAULT_VISIBLE_BODIES);
-  const [eventType, setEventType] = useState<CatalogEventType>("closestApproach");
-  const [eventBodyA, setEventBodyA] = useState<BodyId>("earth");
-  const [eventBodyB, setEventBodyB] = useState<BodyId>("mars");
-  const [eventResult, setEventResult] = useState<
-    (ClosestApproachResult & { angleDeg: null; magnitude: null; type: "closestApproach" }) | CatalogEventResult | null
-  >(null);
+  const [visibleBodies, setVisibleBodies] = useState<BodyId[]>(initialView?.visibleBodies ?? defaultBodies);
+  const [eventType, setEventType] = useState<CatalogEventType>(initialView?.eventType ?? "closestApproach");
+  const [eventBodyA, setEventBodyA] = useState<BodyId>(initialView?.bodyA ?? "earth");
+  const [eventBodyB, setEventBodyB] = useState<BodyId>(initialView?.bodyB ?? "mars");
+  const [eventResult, setEventResult] = useState<DisplayEvent | null>(initialEntry?.eventResult ?? null);
+  const eventHistory = useRef(createEventNavigation<EventSnapshot>(
+    initialEntry?.eventResult ? { result: initialEntry.eventResult, status: initialEntry.eventStatus } : null,
+  ));
   const [isSearching, setIsSearching] = useState(false);
-  const [eventStatus, setEventStatus] = useState<string | null>(null);
-  const [smallBodyTrajectories, setSmallBodyTrajectories] = useState<
-    Partial<Record<BodyId, SmallBodyTrajectory>>
-  >({});
-  const [liveSmallBodyPositions, setLiveSmallBodyPositions] = useState<BodyPosition[]>([]);
+  const [eventStatus, setEventStatus] = useState<string | null>(initialEntry?.eventStatus ?? null);
+  const { trajectories: smallBodyTrajectories, error: trajectoryError } = useSmallBodyTrajectories(visibleBodies);
   // The body the camera is following, if any; null is the Sun-centred overview.
-  const [focusedBody, setFocusedBody] = useState<BodyId | null>(null);
-  const lastFrameMs = useRef<number | null>(null);
-  // Mirrors currentTime so the debounced fetch can read the latest value without
-  // re-subscribing every animation frame (it keys off the simulated day instead).
-  const currentTimeRef = useRef(currentTime);
+  const [focusedBody, setFocusedBody] = useState<BodyId | null>(initialView?.focus ?? null);
+  const searchController = useRef<AbortController | null>(null);
+  useEffect(() => () => searchController.current?.abort(), []);
+  const cancelSearch = () => {
+    searchController.current?.abort();
+    setIsSearching(false);
+  };
+  const { currentTime, setCurrentTime, timeRef, pauseClock } = useSimulationClock(initialTime, isPlaying, speedDaysPerSecond);
+  const pausePlayback = () => { pauseClock(); setIsPlaying(false); };
+  const [sharedLink, setSharedLink] = useState<string | null>(null);
+  const viewUrl = useMemo(() => shareUrl({
+    time: currentTime, visibleBodies, eventType, bodyA: eventBodyA, bodyB: eventBodyB, focus: focusedBody,
+  }, window.location.origin), [currentTime, visibleBodies, eventType, eventBodyA, eventBodyB, focusedBody]);
+  const historyEntry = useRef(initialEntry);
+  const historySearch = useRef(window.location.search);
+  const activeShare = useRef(initialView ? shareUrl(initialView, window.location.origin) : null);
+  const shareView = async () => {
+    // A shared snapshot must not be invalidated later by an in-flight Find.
+    cancelSearch();
+    if (isSearching) setEventStatus("Search cancelled");
+    const time = pauseClock();
+    setIsPlaying(false);
+    const url = shareUrl({ time, visibleBodies, eventType, bodyA: eventBodyA, bodyB: eventBodyB, focus: focusedBody }, window.location.origin);
+    const snapshot = (kind: ViewEntry["kind"]): ViewEntry => ({
+      solarView: 1, key: viewEntryKey(), kind, search: new URL(url).search,
+      playing: isPlaying, speed: speedDaysPerSecond, eventResult, eventStatus: isSearching || eventStatus === "Search cancelled" ? null : eventStatus,
+    });
+    // Preserve the original shared snapshot after edits; save a bare-page draft before its first Share.
+    if (historyEntry.current?.kind !== "shared") {
+      historyEntry.current = snapshot("unshared");
+      window.history.replaceState(historyEntry.current, "", window.location.href);
+    }
+    const shared = { ...snapshot("shared"), playing: false };
+    window.history.pushState(shared, "", url);
+    historyEntry.current = shared;
+    historySearch.current = window.location.search;
+    activeShare.current = url;
+    setSharedLink(url);
+    try { await navigator.clipboard.writeText(url); } catch { /* selectable link remains available */ }
+  };
   useEffect(() => {
-    currentTimeRef.current = currentTime;
-  }, [currentTime]);
+    if (!activeShare.current || activeShare.current === viewUrl) return;
+    // One history write per shared entry, never one write per animation frame.
+    window.history.replaceState(historyEntry.current, "", window.location.pathname + window.location.hash);
+    historySearch.current = "";
+    activeShare.current = null;
+    setSharedLink(null);
+  }, [viewUrl]);
+  useEffect(() => {
+    const restore = (event: PopStateEvent) => {
+      const saved = readViewEntry(event.state);
+      // Hash navigation clones the same entry. Distinct bare entries still need restoring.
+      if (historySearch.current === window.location.search && (!saved || saved.entry.key === historyEntry.current?.key)) return;
+      const view = saved?.view ?? readSharedView(window.location.search);
+      // An edited share retains its original snapshot. Restore its copyable URL once on Back.
+      if (saved?.entry.kind === "shared" && !window.location.search) {
+        window.history.replaceState(saved.entry, "", window.location.pathname + saved.entry.search + window.location.hash);
+      }
+      // Defence in depth: React normally flushes popstate before the next frame;
+      // explicitly stop the live clock too.
+      if (!saved?.entry.playing) pauseClock();
+      historyEntry.current = saved?.entry ?? null;
+      historySearch.current = window.location.search;
+      activeShare.current = view && window.location.search ? shareUrl(view, window.location.origin) : null;
+      searchController.current?.abort();
+      setIsSearching(false); setIsPlaying(saved?.entry.playing ?? false);
+      setSpeedDaysPerSecond(saved?.entry.speed ?? 10);
+      setEventResult(saved?.entry.eventResult ?? null); setEventStatus(saved?.entry.eventStatus ?? null);
+      eventHistory.current = createEventNavigation<EventSnapshot>(
+        saved?.entry.eventResult
+          ? { result: saved.entry.eventResult, status: saved.entry.eventStatus }
+          : null,
+      );
+      setSharedLink(null);
+      setCurrentTime(view?.time ?? new Date());
+      setVisibleBodies(view?.visibleBodies ?? defaultBodies);
+      setEventType(view?.eventType ?? "closestApproach");
+      setEventBodyA(view?.bodyA ?? "earth"); setEventBodyB(view?.bodyB ?? "mars");
+      setFocusedBody(view?.focus ?? null);
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, [pauseClock, setCurrentTime]);
 
   const eventPairIsValid = useMemo(
     () => isValidEventPair(eventType, eventBodyA, eventBodyB),
@@ -73,83 +168,7 @@ export default function App() {
     });
   };
 
-  useEffect(() => {
-    let animationFrameId = 0;
-
-    const tick = (frameMs: number) => {
-      if (isPlaying) {
-        const lastMs = lastFrameMs.current ?? frameMs;
-        const elapsedSeconds = (frameMs - lastMs) / 1000;
-        const elapsedDays = elapsedSeconds * speedDaysPerSecond;
-
-        setCurrentTime((time) => addDays(time, elapsedDays));
-      }
-
-      lastFrameMs.current = frameMs;
-      animationFrameId = window.requestAnimationFrame(tick);
-    };
-
-    animationFrameId = window.requestAnimationFrame(tick);
-
-    return () => window.cancelAnimationFrame(animationFrameId);
-  }, [isPlaying, speedDaysPerSecond]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void loadSmallBodyTrajectoriesWithRetry().then((trajectories) => {
-      if (!cancelled) {
-        setSmallBodyTrajectories(trajectories);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const visibleSmallBodies = useMemo(
-    () => visibleBodies.filter((body) => isSmallBody(body)),
-    [visibleBodies],
-  );
-  const simulatedDayKey = Math.floor(currentTime.getTime() / 86_400_000);
-
-  const smallBodiesNeedingLiveFetch = useMemo(
-    () =>
-      visibleSmallBodies.filter((body) => {
-        const trajectory = smallBodyTrajectories[body];
-        return !trajectory?.length;
-      }),
-    [smallBodyTrajectories, visibleSmallBodies],
-  );
-
-  useEffect(() => {
-    // Nothing to fetch: stale live positions are harmless because the positions memo only
-    // surfaces live data for visible small bodies that still lack a trajectory.
-    if (smallBodiesNeedingLiveFetch.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-    const debounceHandle = window.setTimeout(() => {
-      void getBackendBodyPositions(smallBodiesNeedingLiveFetch, currentTimeRef.current)
-        .then((positions) => {
-          if (!cancelled) {
-            setLiveSmallBodyPositions(positions);
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setLiveSmallBodyPositions([]);
-          }
-        });
-    }, LIVE_FETCH_DEBOUNCE_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(debounceHandle);
-    };
-  }, [simulatedDayKey, smallBodiesNeedingLiveFetch]);
+  const visibleSmallBodies = useMemo(() => visibleBodies.filter(isSmallBody), [visibleBodies]);
 
   const interpolatedSmallBodyPositions = useMemo(
     () =>
@@ -174,20 +193,18 @@ export default function App() {
   const positions = useMemo(() => {
     const majorBodies = visibleBodies.filter((body) => !isSmallBody(body));
     const majorPositions = getBodyPositions(majorBodies, currentTime);
-    const liveByBody = new Map(liveSmallBodyPositions.map((position) => [position.body, position]));
     const interpolatedByBody = new Map(
       interpolatedSmallBodyPositions.map((position) => [position.body, position]),
     );
 
     const smallBodyPositions = visibleSmallBodies
-      .map((body) => interpolatedByBody.get(body) ?? liveByBody.get(body))
+      .map((body) => interpolatedByBody.get(body))
       .filter((position): position is BodyPosition => position !== undefined);
 
     return [...majorPositions, ...smallBodyPositions];
   }, [
     currentTime,
     interpolatedSmallBodyPositions,
-    liveSmallBodyPositions,
     visibleBodies,
     visibleSmallBodies,
   ]);
@@ -235,6 +252,8 @@ export default function App() {
 
   const handleEventTypeChange = (type: CatalogEventType) => {
     setEventType(type);
+    cancelSearch();
+    eventHistory.current = createEventNavigation();
     setEventResult(null);
     setEventStatus(null);
 
@@ -245,6 +264,8 @@ export default function App() {
 
   const handleEventBodyAChange = (body: BodyId) => {
     setEventBodyA(body);
+    cancelSearch();
+    eventHistory.current = createEventNavigation();
     setEventResult(null);
     setEventStatus(null);
 
@@ -255,6 +276,8 @@ export default function App() {
 
   const handleEventBodyBChange = (body: BodyId) => {
     setEventBodyB(body);
+    cancelSearch();
+    eventHistory.current = createEventNavigation();
     setEventResult(null);
     setEventStatus(null);
 
@@ -263,21 +286,51 @@ export default function App() {
     setEventBodyB(normalized.bodyB);
   };
 
-  const handleSearchEvent = async (anchor: Date, direction: "next" | "prev" = "next") => {
+  const showEvent = ({ result, status }: EventSnapshot) => {
+    setCurrentTime(result.time);
+    ensureBodiesVisible(result.bodyA, result.bodyB);
+    setEventResult(result);
+    setFocusedBody(null); // the camera frames the event instead
+    setEventStatus(status);
+  };
+
+  const rememberEvent = (result: DisplayEvent, status: string, direction: EventDirection) => {
+    const snapshot = { result, status };
+    eventHistory.current = recordEventNavigation(eventHistory.current, snapshot, direction);
+    showEvent(snapshot);
+  };
+
+  const restoreEvent = (direction: EventDirection) => {
+    const restored = stepEventNavigation(eventHistory.current, direction);
+    if (!restored?.current) return false;
+    cancelSearch();
+    eventHistory.current = restored;
+    showEvent(restored.current);
+    pausePlayback();
+    return true;
+  };
+
+  const handleSearchEvent = async (anchor: Date, direction: EventDirection = "next") => {
     if (!eventPairIsValid) {
       setEventStatus("Choose a valid body pair for this event type.");
       return;
     }
 
+    searchController.current?.abort();
+    const controller = new AbortController();
+    searchController.current = controller;
     setIsSearching(true);
     setEventStatus(`Searching for ${direction === "prev" ? "previous" : "next"} event...`);
 
+    const currentResult = eventHistory.current.current?.result ?? eventResult;
+    const excludeId = currentResult && "id" in currentResult ? currentResult.id : undefined;
     try {
       const result =
         direction === "prev"
-          ? await findPreviousEvent(eventType, eventBodyA, eventBodyB, anchor)
-          : await findNextEvent(eventType, eventBodyA, eventBodyB, anchor);
+          ? await findPreviousEvent(eventType, eventBodyA, eventBodyB, anchor, controller.signal, excludeId)
+          : await findNextEvent(eventType, eventBodyA, eventBodyB, anchor, controller.signal, excludeId);
 
+      if (controller.signal.aborted) return;
       if (!result) {
         setEventStatus(
           `No matching events found in the ${direction === "prev" ? "previous" : "next"} ${SEARCH_HORIZON_YEARS} years.`,
@@ -285,17 +338,10 @@ export default function App() {
         return;
       }
 
-      setCurrentTime(result.time);
-      ensureBodiesVisible(result.bodyA, result.bodyB);
-      setEventResult(result);
-      setFocusedBody(null); // the camera frames the event instead
-      setEventStatus(
-        result.validationStatus === "validated" || isJplSource(result.source) || isJplSource(result.computedSource)
-          ? "Loaded event."
-          : "Loaded provisional event.",
-      );
+      rememberEvent(result, result.validationStatus === "validated" ? "Loaded event." : "Loaded provisional event.", direction);
     } catch (error) {
-      if (eventType !== "closestApproach") {
+      if (controller.signal.aborted) return;
+      if (eventType !== "closestApproach" || !canUseBrowserFallback(error) || isSmallBody(eventBodyA) || isSmallBody(eventBodyB)) {
         setEventStatus(
           error instanceof Error ? error.message : "Event search failed.",
         );
@@ -304,43 +350,41 @@ export default function App() {
 
       const start = direction === "prev" ? addYears(anchor, -5) : anchor;
       const end = direction === "prev" ? anchor : addYears(anchor, 5);
-      const result = findClosestApproach(eventBodyA, eventBodyB, start, end);
+      const result = findClosestApproach(eventBodyA, eventBodyB, start, end, direction);
+      if (!result) { setEventStatus("Backend unavailable; no local minimum found in the five-year browser window."); return; }
 
-      setCurrentTime(result.time);
-      ensureBodiesVisible(result.bodyA, result.bodyB);
-      setEventResult({
-        ...result,
-        angleDeg: null,
-        magnitude: null,
-        type: "closestApproach",
-      });
-      setFocusedBody(null);
-      setEventStatus(
-        `Backend unavailable; used browser calculation. ${
-          error instanceof Error ? error.message : "Unknown backend error"
-        }`,
-      );
+      rememberEvent({
+        ...result, angleDeg: null, magnitude: null, type: "closestApproach",
+      }, `Backend unavailable; used browser calculation. ${
+        error instanceof Error ? error.message : "Unknown backend error"
+      }`, direction);
     } finally {
-      setIsSearching(false);
-      setIsPlaying(false);
+      if (!controller.signal.aborted) {
+        setIsSearching(false);
+        pausePlayback();
+      }
     }
   };
 
   const handleNextEvent = () => {
-    const searchAfter = eventResult ? addDays(eventResult.time, 1) : currentTime;
+    if (restoreEvent("next")) return;
+    const currentResult = eventHistory.current.current?.result ?? eventResult;
+    const searchAfter = currentResult ? addDays(currentResult.time, 1) : timeRef.current;
     void handleSearchEvent(searchAfter, "next");
   };
 
   const handlePreviousEvent = () => {
-    const searchBefore = eventResult ? addDays(eventResult.time, -1) : currentTime;
+    if (restoreEvent("prev")) return;
+    const currentResult = eventHistory.current.current?.result ?? eventResult;
+    const searchBefore = currentResult ? addDays(currentResult.time, -1) : timeRef.current;
     void handleSearchEvent(searchBefore, "prev");
   };
 
   return (
     <main className="app-shell">
       <section className="hero-panel" aria-label="Solar system simulation">
-        <Suspense fallback={<div className="scene-loading">Loading 3D view…</div>}>
-          <SolarSystemScene
+          <SceneBoundary
+            timeRef={timeRef}
             currentTime={currentTime}
             focusedBody={focusedBody}
             highlightedBodies={highlightedBodies}
@@ -349,7 +393,6 @@ export default function App() {
             visibleBodies={visibleBodies}
             onFocusBody={setFocusedBody}
           />
-        </Suspense>
         {focusedBody ? (
           <div className="focus-chip" role="status">
             <span>
@@ -364,9 +407,12 @@ export default function App() {
 
       <ControlPanel
         currentTime={currentTime}
+        onShare={() => void shareView()}
+        sharedLink={sharedLink}
         eventPairIsValid={eventPairIsValid}
         eventResult={eventResult}
         eventStatus={eventStatus}
+        trajectoryStatus={[trajectoryError, trajectoryCoverageNotice(visibleBodies, smallBodyTrajectories, currentTime)].filter(Boolean).join(" ") || null}
         eventBodyA={eventBodyA}
         eventBodyB={eventBodyB}
         eventType={eventType}
@@ -375,11 +421,11 @@ export default function App() {
         locksEarthAsBodyA={locksEarthAsBodyA(eventType)}
         speedDaysPerSecond={speedDaysPerSecond}
         visibleBodies={visibleBodies}
-        onDateChange={setCurrentTime}
+        onDateChange={(time) => { cancelSearch(); eventHistory.current = createEventNavigation(); setEventResult(null); setEventStatus(null); pausePlayback(); setCurrentTime(time); }}
         onEventBodyAChange={handleEventBodyAChange}
         onEventBodyBChange={handleEventBodyBChange}
         onEventTypeChange={handleEventTypeChange}
-        onPlayToggle={() => setIsPlaying((playing) => !playing)}
+        onPlayToggle={() => { if (isPlaying) pausePlayback(); else setIsPlaying(true); }}
         onNextEvent={handleNextEvent}
         onPrevEvent={handlePreviousEvent}
         onSpeedChange={setSpeedDaysPerSecond}

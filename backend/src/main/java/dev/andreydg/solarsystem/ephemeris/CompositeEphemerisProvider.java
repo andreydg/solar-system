@@ -11,37 +11,38 @@ import org.springframework.stereotype.Component;
 @Component
 @Primary
 public class CompositeEphemerisProvider implements EphemerisProvider {
-    private final Vsop87aEphemerisProvider vsop87aEphemerisProvider;
+    private final KeplerianEphemerisProvider keplerianEphemerisProvider;
     private final JplEphemerisProvider jplEphemerisProvider;
     private final SmallBodyTrajectoryService trajectoryService;
 
     public CompositeEphemerisProvider(
-        Vsop87aEphemerisProvider vsop87aEphemerisProvider,
+        KeplerianEphemerisProvider keplerianEphemerisProvider,
         JplEphemerisProvider jplEphemerisProvider,
         SmallBodyTrajectoryService trajectoryService
     ) {
-        this.vsop87aEphemerisProvider = vsop87aEphemerisProvider;
+        this.keplerianEphemerisProvider = keplerianEphemerisProvider;
         this.jplEphemerisProvider = jplEphemerisProvider;
         this.trajectoryService = trajectoryService;
     }
 
     @Override
     public Vector3Au heliocentricPosition(BodyId body, Instant timeUtc) {
+        dev.andreydg.solarsystem.catalog.GenerationBudget.check();
         if (body.isSmallBody()) {
             return trajectoryService.interpolate(body, timeUtc)
                 .orElseGet(() -> jplEphemerisProvider.heliocentricPosition(body, timeUtc));
         }
 
-        return vsop87aEphemerisProvider.heliocentricPosition(body, timeUtc);
+        return keplerianEphemerisProvider.heliocentricPosition(body, timeUtc);
     }
 
     @Override
     public String source() {
-        return vsop87aEphemerisProvider.source();
+        return keplerianEphemerisProvider.source();
     }
 
     public String sourceFor(BodyId body) {
-        return body.isSmallBody() ? jplEphemerisProvider.source() : vsop87aEphemerisProvider.source();
+        return body.isSmallBody() ? "JPL_TRAJECTORY_APPROX" : keplerianEphemerisProvider.source();
     }
 
     public List<JplEphemerisProvider.HeliocentricDistanceSample> heliocentricDistanceSamples(
@@ -58,6 +59,7 @@ public class CompositeEphemerisProvider implements EphemerisProvider {
         if (!trajectory.isEmpty()) {
             List<JplEphemerisProvider.HeliocentricDistanceSample> samples = new ArrayList<>();
             for (Instant time = from; !time.isAfter(to); time = time.plus(step)) {
+                dev.andreydg.solarsystem.catalog.GenerationBudget.check();
                 Instant sampleTime = time;
                 trajectoryService.interpolate(body, sampleTime).ifPresent(position -> samples.add(
                     new JplEphemerisProvider.HeliocentricDistanceSample(sampleTime, position.magnitude())

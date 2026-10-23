@@ -111,10 +111,6 @@ export const EVENT_TYPE_BY_ID = Object.fromEntries(
   EVENT_TYPES.map((eventType) => [eventType.id, eventType]),
 ) as Record<CatalogEventType, EventTypeDefinition>;
 
-export function requiresEarth(type: CatalogEventType) {
-  return EVENT_TYPE_BY_ID[type].pairing !== "any";
-}
-
 export function getEventTargetOptions(type: CatalogEventType): BodyId[] {
   const definition = EVENT_TYPE_BY_ID[type];
 

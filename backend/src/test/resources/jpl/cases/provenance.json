@@ -1,0 +1,584 @@
+{
+  "retrieved": "2026-10-13",
+  "recaptured": [
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-22"
+  ],
+  "source": "https://ssd.jpl.nasa.gov/horizons/manual.html",
+  "cases": [
+    {
+      "name": "mars-near",
+      "bodies": [
+        [
+          "earth",
+          "399"
+        ],
+        [
+          "mars",
+          "4"
+        ]
+      ],
+      "anchor": "2027-02-20T00:00:00Z",
+      "fine": "2027-02-20T00:00:00Z",
+      "days": 10,
+      "types": [
+        "CLOSEST_APPROACH",
+        "OPPOSITION",
+        "BRIGHTEST_APPROACH"
+      ],
+      "validationWindowDays": 7
+    },
+    {
+      "name": "mars-far",
+      "bodies": [
+        [
+          "earth",
+          "399"
+        ],
+        [
+          "mars",
+          "4"
+        ]
+      ],
+      "anchor": "2028-05-12T00:00:00Z",
+      "fine": "2028-05-12T00:00:00Z",
+      "days": 10,
+      "types": [
+        "FARTHEST_APPROACH"
+      ],
+      "validationWindowDays": 7
+    },
+    {
+      "name": "mars-conjunction",
+      "bodies": [
+        [
+          "earth",
+          "399"
+        ],
+        [
+          "mars",
+          "4"
+        ]
+      ],
+      "anchor": "2028-03-22T00:00:00Z",
+      "fine": "2028-03-22T00:00:00Z",
+      "days": 10,
+      "types": [
+        "CONJUNCTION"
+      ],
+      "validationWindowDays": 7
+    },
+    {
+      "name": "mars-start",
+      "bodies": [
+        [
+          "earth",
+          "399"
+        ],
+        [
+          "mars",
+          "4"
+        ]
+      ],
+      "anchor": "2027-01-11T00:00:00Z",
+      "fine": "2027-01-11T00:00:00Z",
+      "days": 10,
+      "types": [
+        "RETROGRADE_START",
+        "STATIONARY"
+      ],
+      "validationWindowDays": 7
+    },
+    {
+      "name": "mars-end",
+      "bodies": [
+        [
+          "earth",
+          "399"
+        ],
+        [
+          "mars",
+          "4"
+        ]
+      ],
+      "anchor": "2027-04-02T00:00:00Z",
+      "fine": "2027-04-02T00:00:00Z",
+      "days": 10,
+      "types": [
+        "RETROGRADE_END"
+      ],
+      "validationWindowDays": 7
+    },
+    {
+      "name": "mercury-elongation",
+      "bodies": [
+        [
+          "earth",
+          "399"
+        ],
+        [
+          "mercury",
+          "199"
+        ]
+      ],
+      "anchor": "2026-02-20T00:00:00Z",
+      "fine": "2026-02-20T00:00:00Z",
+      "days": 10,
+      "types": [
+        "GREATEST_ELONGATION"
+      ],
+      "validationWindowDays": 7
+    },
+    {
+      "name": "mercury-transit",
+      "bodies": [
+        [
+          "earth",
+          "399"
+        ],
+        [
+          "mercury",
+          "199"
+        ]
+      ],
+      "anchor": "2032-11-13T00:00:00Z",
+      "fine": "2032-11-13T00:00:00Z",
+      "days": 10,
+      "types": [
+        "TRANSIT"
+      ],
+      "validationWindowDays": 7
+    },
+    {
+      "name": "ceres-perihelion",
+      "bodies": [
+        [
+          "ceres",
+          "1;"
+        ]
+      ],
+      "anchor": "2027-07-11T00:00:00Z",
+      "fine": "2027-07-11T00:00:00Z",
+      "days": 10,
+      "types": [
+        "PERIHELION"
+      ],
+      "validationWindowDays": 7
+    },
+    {
+      "name": "saturn-uranus",
+      "bodies": [
+        [
+          "saturn",
+          "6"
+        ],
+        [
+          "uranus",
+          "7"
+        ]
+      ],
+      "anchor": "2056-02-20T10:00:00Z",
+      "fine": "2056-03-08T12:00:00Z",
+      "days": 83,
+      "types": [
+        "FARTHEST_APPROACH"
+      ],
+      "generatorAnchor": "2056-03-01T21:00:00Z",
+      "coverage": "Coarse window 2055-11-01 through 2056-06-01, widened for the exterior blend ramp."
+    },
+    {
+      "name": "uranus-neptune",
+      "bodies": [
+        [
+          "uranus",
+          "7"
+        ],
+        [
+          "neptune",
+          "8"
+        ]
+      ],
+      "anchor": "2084-04-06T00:00:00Z",
+      "fine": "2084-03-06T06:00:00Z",
+      "days": 181,
+      "types": [
+        "FARTHEST_APPROACH"
+      ],
+      "generatorAnchor": "2084-04-06T18:00:00Z"
+    }
+  ],
+  "requests": [
+    {
+      "body": "399",
+      "from": "2027-02-10 00:00",
+      "to": "2027-03-02 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-02-10+00%3A00%27&STOP_TIME=%272027-03-02+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mars-near-earth-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "399",
+      "from": "2027-02-18 12:00",
+      "to": "2027-02-21 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-02-18+12%3A00%27&STOP_TIME=%272027-02-21+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mars-near-earth-fine.csv"
+    },
+    {
+      "body": "4",
+      "from": "2027-02-18 12:00",
+      "to": "2027-02-21 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%274%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-02-18+12%3A00%27&STOP_TIME=%272027-02-21+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mars-near-mars-fine.csv"
+    },
+    {
+      "body": "4",
+      "from": "2027-02-10 00:00",
+      "to": "2027-03-02 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%274%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-02-10+00%3A00%27&STOP_TIME=%272027-03-02+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mars-near-mars-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "399",
+      "from": "2028-05-10 12:00",
+      "to": "2028-05-13 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272028-05-10+12%3A00%27&STOP_TIME=%272028-05-13+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mars-far-earth-fine.csv"
+    },
+    {
+      "body": "399",
+      "from": "2028-05-02 00:00",
+      "to": "2028-05-22 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272028-05-02+00%3A00%27&STOP_TIME=%272028-05-22+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mars-far-earth-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "4",
+      "from": "2028-05-02 00:00",
+      "to": "2028-05-22 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%274%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272028-05-02+00%3A00%27&STOP_TIME=%272028-05-22+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mars-far-mars-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "4",
+      "from": "2028-05-10 12:00",
+      "to": "2028-05-13 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%274%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272028-05-10+12%3A00%27&STOP_TIME=%272028-05-13+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mars-far-mars-fine.csv"
+    },
+    {
+      "body": "399",
+      "from": "2028-03-12 00:00",
+      "to": "2028-04-01 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272028-03-12+00%3A00%27&STOP_TIME=%272028-04-01+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mars-conjunction-earth-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "399",
+      "from": "2028-03-20 12:00",
+      "to": "2028-03-23 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272028-03-20+12%3A00%27&STOP_TIME=%272028-03-23+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mars-conjunction-earth-fine.csv"
+    },
+    {
+      "body": "4",
+      "from": "2028-03-12 00:00",
+      "to": "2028-04-01 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%274%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272028-03-12+00%3A00%27&STOP_TIME=%272028-04-01+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mars-conjunction-mars-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "4",
+      "from": "2028-03-20 12:00",
+      "to": "2028-03-23 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%274%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272028-03-20+12%3A00%27&STOP_TIME=%272028-03-23+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mars-conjunction-mars-fine.csv"
+    },
+    {
+      "body": "399",
+      "from": "2027-01-09 12:00",
+      "to": "2027-01-12 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-01-09+12%3A00%27&STOP_TIME=%272027-01-12+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mars-start-earth-fine.csv"
+    },
+    {
+      "body": "399",
+      "from": "2027-01-01 00:00",
+      "to": "2027-01-21 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-01-01+00%3A00%27&STOP_TIME=%272027-01-21+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mars-start-earth-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "4",
+      "from": "2027-01-09 12:00",
+      "to": "2027-01-12 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%274%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-01-09+12%3A00%27&STOP_TIME=%272027-01-12+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mars-start-mars-fine.csv"
+    },
+    {
+      "body": "4",
+      "from": "2027-01-01 00:00",
+      "to": "2027-01-21 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%274%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-01-01+00%3A00%27&STOP_TIME=%272027-01-21+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mars-start-mars-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "399",
+      "from": "2027-03-23 00:00",
+      "to": "2027-04-12 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-03-23+00%3A00%27&STOP_TIME=%272027-04-12+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mars-end-earth-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "399",
+      "from": "2027-03-31 12:00",
+      "to": "2027-04-03 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-03-31+12%3A00%27&STOP_TIME=%272027-04-03+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mars-end-earth-fine.csv"
+    },
+    {
+      "body": "4",
+      "from": "2027-03-23 00:00",
+      "to": "2027-04-12 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%274%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-03-23+00%3A00%27&STOP_TIME=%272027-04-12+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mars-end-mars-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "4",
+      "from": "2027-03-31 12:00",
+      "to": "2027-04-03 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%274%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-03-31+12%3A00%27&STOP_TIME=%272027-04-03+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mars-end-mars-fine.csv"
+    },
+    {
+      "body": "399",
+      "from": "2026-02-10 00:00",
+      "to": "2026-03-02 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272026-02-10+00%3A00%27&STOP_TIME=%272026-03-02+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mercury-elongation-earth-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "399",
+      "from": "2026-02-18 12:00",
+      "to": "2026-02-21 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272026-02-18+12%3A00%27&STOP_TIME=%272026-02-21+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mercury-elongation-earth-fine.csv"
+    },
+    {
+      "body": "199",
+      "from": "2026-02-10 00:00",
+      "to": "2026-03-02 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27199%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272026-02-10+00%3A00%27&STOP_TIME=%272026-03-02+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mercury-elongation-mercury-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "199",
+      "from": "2026-02-18 12:00",
+      "to": "2026-02-21 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27199%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272026-02-18+12%3A00%27&STOP_TIME=%272026-02-21+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mercury-elongation-mercury-fine.csv"
+    },
+    {
+      "body": "399",
+      "from": "2032-11-03 00:00",
+      "to": "2032-11-23 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272032-11-03+00%3A00%27&STOP_TIME=%272032-11-23+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mercury-transit-earth-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "399",
+      "from": "2032-11-11 12:00",
+      "to": "2032-11-14 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27399%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272032-11-11+12%3A00%27&STOP_TIME=%272032-11-14+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mercury-transit-earth-fine.csv"
+    },
+    {
+      "body": "199",
+      "from": "2032-11-03 00:00",
+      "to": "2032-11-23 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27199%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272032-11-03+00%3A00%27&STOP_TIME=%272032-11-23+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/mercury-transit-mercury-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "199",
+      "from": "2032-11-11 12:00",
+      "to": "2032-11-14 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%27199%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272032-11-11+12%3A00%27&STOP_TIME=%272032-11-14+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/mercury-transit-mercury-fine.csv"
+    },
+    {
+      "body": "1;",
+      "from": "2027-07-01 00:00",
+      "to": "2027-07-21 00:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%271%3B%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-07-01+00%3A00%27&STOP_TIME=%272027-07-21+00%3A00%27&STEP_SIZE=%27360m%27",
+      "file": "backend/src/test/resources/jpl/cases/ceres-perihelion-ceres-coarse.csv",
+      "retrieved": "2026-10-18",
+      "count": 81
+    },
+    {
+      "body": "1;",
+      "from": "2027-07-09 12:00",
+      "to": "2027-07-12 12:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%271%3B%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272027-07-09+12%3A00%27&STOP_TIME=%272027-07-12+12%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/ceres-perihelion-ceres-fine.csv"
+    },
+    {
+      "body": "6",
+      "from": "2055-11-01 10:00",
+      "to": "2056-06-01 10:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%276%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272055-11-01+10%3A00%27&STOP_TIME=%272056-06-01+10%3A00%27&STEP_SIZE=%27360m%27",
+      "count": 853,
+      "file": "backend/src/test/resources/jpl/cases/saturn-uranus-saturn-coarse.csv",
+      "retrieved": "2026-10-22"
+    },
+    {
+      "body": "6",
+      "from": "2056-03-07 00:00",
+      "to": "2056-03-10 00:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%276%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272056-03-07+00%3A00%27&STOP_TIME=%272056-03-10+00%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/saturn-uranus-saturn-fine.csv"
+    },
+    {
+      "body": "7",
+      "from": "2056-03-07 00:00",
+      "to": "2056-03-10 00:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%277%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272056-03-07+00%3A00%27&STOP_TIME=%272056-03-10+00%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/saturn-uranus-uranus-fine.csv"
+    },
+    {
+      "body": "7",
+      "from": "2055-11-01 10:00",
+      "to": "2056-06-01 10:00",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%277%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272055-11-01+10%3A00%27&STOP_TIME=%272056-06-01+10%3A00%27&STEP_SIZE=%27360m%27",
+      "count": 853,
+      "file": "backend/src/test/resources/jpl/cases/saturn-uranus-uranus-coarse.csv",
+      "retrieved": "2026-10-22"
+    },
+    {
+      "body": "7",
+      "from": "2084-03-04 18:00",
+      "to": "2084-03-07 18:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%277%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272084-03-04+18%3A00%27&STOP_TIME=%272084-03-07+18%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/uranus-neptune-uranus-fine.csv"
+    },
+    {
+      "body": "7",
+      "from": "2083-10-08",
+      "to": "2084-10-04",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%277%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272083-10-08%27&STOP_TIME=%272084-10-04%27&STEP_SIZE=%27360m%27",
+      "count": 1449,
+      "file": "backend/src/test/resources/jpl/cases/uranus-neptune-uranus-coarse.csv",
+      "retrieved": "2026-10-17"
+    },
+    {
+      "body": "8",
+      "from": "2083-10-08",
+      "to": "2084-10-04",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%278%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272083-10-08%27&STOP_TIME=%272084-10-04%27&STEP_SIZE=%27360m%27",
+      "count": 1449,
+      "file": "backend/src/test/resources/jpl/cases/uranus-neptune-neptune-coarse.csv",
+      "retrieved": "2026-10-17"
+    },
+    {
+      "body": "8",
+      "from": "2084-03-04 18:00",
+      "to": "2084-03-07 18:00",
+      "step": "5m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%278%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272084-03-04+18%3A00%27&STOP_TIME=%272084-03-07+18%3A00%27&STEP_SIZE=%275m%27",
+      "count": 865,
+      "file": "backend/src/test/resources/jpl/cases/uranus-neptune-neptune-fine.csv"
+    },
+    {
+      "body": "1;",
+      "from": "2029-10-19",
+      "to": "2029-11-02",
+      "step": "360m",
+      "url": "https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=%271%3B%27&CENTER=%27500%4010%27&REF_SYSTEM=%27ICRF%27&REF_PLANE=%27ECLIPTIC%27&EPHEM_TYPE=%27VECTORS%27&VEC_TABLE=%272%27&OUT_UNITS=%27AU-D%27&CSV_FORMAT=%27YES%27&OBJ_DATA=%27NO%27&TIME_TYPE=%27UT%27&CAL_TYPE=%27GREGORIAN%27&TIME_DIGITS=%27FRACSEC%27&VEC_CORR=%27NONE%27&START_TIME=%272029-10-19%27&STOP_TIME=%272029-11-02%27&STEP_SIZE=%27360m%27",
+      "count": 57,
+      "file": "backend/src/test/resources/jpl/cases/ceres-aphelion-ceres-coarse.csv"
+    }
+  ],
+  "generatorCoverage": "Coarse recordings extended by three days on each side on 2026-10-18; all 13 actual generator anchors are validated offline. Saturn–Uranus coarse recordings extended on 2026-10-22 for the exterior-ramp generator anchor; validation geometry and fine samples unchanged."
+}

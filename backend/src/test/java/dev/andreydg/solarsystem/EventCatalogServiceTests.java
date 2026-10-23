@@ -21,9 +21,69 @@ import org.springframework.boot.test.context.SpringBootTest;
     "solar-system.trajectories.cache-dir=../data/trajectories",
     "solar-system.trajectories.refresh-from-jpl=false"
 })
+@org.springframework.context.annotation.Import(OfflineEphemerisConfiguration.class)
 class EventCatalogServiceTests {
     @Autowired
     private EventCatalogService service;
+    @Autowired
+    private dev.andreydg.solarsystem.storage.EventCatalogRepository repository;
+
+
+    @Test void realTransitSearchIsIndependentOfAnchorHourAndExcludesNearMisses() {
+        for (int hour : new int[] {0, 3, 15, 18, 21}) {
+            Instant from = Instant.parse("2032-06-01T00:00:00Z").plusSeconds(hour * 3600);
+            var result = service.generate(EventType.TRANSIT, BodyId.EARTH, BodyId.MERCURY,
+                from, Instant.parse("2033-01-01T00:00:00Z"));
+            assertThat(result).as("anchor hour %s", hour).hasSize(1)
+                .allSatisfy(event -> assertThat(event.computedTimeUtc())
+                    .isBetween(Instant.parse("2032-11-13T00:00:00Z"), Instant.parse("2032-11-14T00:00:00Z")));
+        }
+        for (String date : List.of("2026-11-04T00:00:00Z", "2029-05-13T00:00:00Z", "2045-11-16T00:00:00Z")) {
+            Instant near = Instant.parse(date);
+            assertThat(service.generate(EventType.TRANSIT, BodyId.EARTH, BodyId.MERCURY,
+                near.minusSeconds(10 * 86400), near.plusSeconds(10 * 86400))).as(date).isEmpty();
+        }
+    }
+
+    @Test void aMonotonicOuterPairWindowDoesNotManufactureAnOutOfRangeExtremum() {
+        var from = Instant.parse("2026-01-01T00:00:00Z");
+        var to = Instant.parse("2051-01-01T00:00:00Z");
+        assertThat(service.generate(EventType.CLOSEST_APPROACH, BodyId.URANUS, BodyId.NEPTUNE, from, to)).isEmpty();
+        assertThat(service.generate(EventType.CLOSEST_APPROACH, BodyId.URANUS, BodyId.NEPTUNE, from, to)).isEmpty();
+        assertThat(service.search(new dev.andreydg.solarsystem.catalog.CatalogQuery(EventType.CLOSEST_APPROACH,
+            BodyId.URANUS, BodyId.NEPTUNE, from.minusSeconds(10000000), to, false, false, 100, null)).events()).isEmpty();
+    }
+
+    @Test void actualSlowPlanetExtremaRemainDiscoverableBesideBothWindowEdges() {
+        Object[][] cases = {
+            // Exterior-ramp model anchor; RecordedEventAcceptanceTests independently
+            // refines it against Horizons to 2056-03-07T10:20Z.
+            {EventType.FARTHEST_APPROACH, BodyId.SATURN, BodyId.URANUS, "2056-03-01T21:00:00Z"},
+            {EventType.CLOSEST_APPROACH, BodyId.SATURN, BodyId.NEPTUNE, "2025-09-11T12:00:00Z"},
+            {EventType.CLOSEST_APPROACH, BodyId.URANUS, BodyId.NEPTUNE, "1822-10-22T12:00:00Z"}
+        };
+        for (Object[] c : cases) {
+            Instant expected = Instant.parse((String)c[3]);
+            for (boolean atStart : List.of(true, false)) {
+                Instant from = expected.minus(java.time.Duration.ofDays(atStart ? 2 : 25 * 365));
+                Instant to = expected.plus(java.time.Duration.ofDays(atStart ? 25 * 365 : 2));
+                var events = service.generate((EventType)c[0], (BodyId)c[1], (BodyId)c[2], from, to);
+                assertThat(events).as(java.util.Arrays.toString(c) + " atStart=" + atStart).anySatisfy(event ->
+                    assertThat(java.time.Duration.between(expected, event.computedTimeUtc()).abs()).isLessThan(java.time.Duration.ofDays(2)));
+            }
+        }
+    }
+
+    @Test void negativeCacheDoesNotResurrectInvalidStoredTransit() {
+        Instant from = Instant.parse("2035-01-01T00:00:00Z");
+        Instant to = Instant.parse("2036-01-01T00:00:00Z");
+        var bogus = new CatalogEvent("bogus-transit-review", EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from.plusSeconds(100),
+            null, 45.0, null, "VSOP", null, null, null, null, null,
+            dev.andreydg.solarsystem.catalog.ValidationStatus.PENDING, from, to, from, null, null, null, 0);
+        repository.upsert(bogus);
+        assertThat(service.generate(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to)).isEmpty();
+        assertThat(service.generate(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to)).isEmpty();
+    }
 
     @Test
     void generatesAndQueriesClosestApproaches() {
@@ -31,7 +91,7 @@ class EventCatalogServiceTests {
         Instant to = Instant.parse("2028-12-31T00:00:00Z");
 
         var generated = service.generate(EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS, from, to);
-        var queried = service.query(EventType.CLOSEST_APPROACH, BodyId.MARS, BodyId.EARTH, from, to);
+        var queried = service.search(new dev.andreydg.solarsystem.catalog.CatalogQuery(EventType.CLOSEST_APPROACH, BodyId.MARS, BodyId.EARTH, from, to, false, false, 1000, null)).events();
 
         assertThat(generated).isNotEmpty();
         assertThat(queried).hasSameSizeAs(generated);
@@ -44,7 +104,7 @@ class EventCatalogServiceTests {
         Instant to = Instant.parse("2028-12-31T00:00:00Z");
 
         var generated = service.generate(EventType.FARTHEST_APPROACH, BodyId.EARTH, BodyId.MARS, from, to);
-        var queried = service.query(EventType.FARTHEST_APPROACH, BodyId.MARS, BodyId.EARTH, from, to);
+        var queried = service.search(new dev.andreydg.solarsystem.catalog.CatalogQuery(EventType.FARTHEST_APPROACH, BodyId.MARS, BodyId.EARTH, from, to, false, false, 1000, null)).events();
 
         assertThat(generated).isNotEmpty();
         assertThat(queried).hasSameSizeAs(generated);
@@ -64,14 +124,12 @@ class EventCatalogServiceTests {
 
     @Test
     void doesNotGenerateFalseVenusTransitsBefore2117() {
-        Instant from = Instant.parse("2026-01-01T00:00:00Z");
-        Instant to = Instant.parse("2116-12-31T00:00:00Z");
-
-        var generated = service.generate(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to);
-        var queried = service.query(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to);
-
-        assertThat(generated).isEmpty();
-        assertThat(queried).isEmpty();
+        for (int year = 2026; year < 2117; year += 25) {
+            Instant from = Instant.parse(year + "-01-01T00:00:00Z");
+            Instant to = Instant.parse(Math.min(year + 25, 2117) + "-01-01T00:00:00Z");
+            assertThat(service.generate(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to)).isEmpty();
+            assertThat(service.search(new dev.andreydg.solarsystem.catalog.CatalogQuery(EventType.TRANSIT, BodyId.EARTH, BodyId.VENUS, from, to, false, false, 1000, null)).events()).isEmpty();
+        }
     }
 
     @Test
@@ -98,7 +156,7 @@ class EventCatalogServiceTests {
         // Generate (PENDING) then mark one validated so there is something to query.
         var generated = service.generate(EventType.CLOSEST_APPROACH, BodyId.EARTH, BodyId.MARS, from, to);
         CatalogEvent pending = generated.getFirst();
-        service.storeValidation(pending, pending.computedTimeUtc(), pending.computedDistanceAu(), null, null, 0.0, "test");
+        repository.upsert(pending.validated(pending.computedTimeUtc(), pending.computedDistanceAu(), null, null, 0.0, "test"));
 
         var all = service.listValidatedEvents(Optional.empty(), Optional.empty(), Optional.empty());
         assertThat(all).hasSize(1);

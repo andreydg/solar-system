@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BODIES, type BodyId } from "../domain/solarSystem";
 import {
   EVENT_TYPES,
   type CatalogEventType,
 } from "../domain/eventTypes";
-import { getValidatedEvents, type CatalogEventResult } from "../lib/eventCatalogApi";
-import { formatDate, formatDistance, formatEventTitle } from "../lib/formatters";
+import { getValidatedEvents, type CatalogEventResult, type ValidatedEventQuery } from "../lib/eventCatalogApi";
+import { formatDate, formatDistance, formatEventTitle, formatSource } from "../lib/formatters";
 
 type ValidatedEventsOverlayProps = {
   onClose: () => void;
@@ -16,6 +16,8 @@ type SortOrder = "asc" | "desc";
 const ALL_FILTER = "all";
 
 export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverlayProps) {
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => request.current?.abort(), []);
   const [events, setEvents] = useState<CatalogEventResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -24,6 +26,10 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
   const [filterBodyA, setFilterBodyA] = useState<BodyId | typeof ALL_FILTER>(ALL_FILTER);
   const [filterBodyB, setFilterBodyB] = useState<BodyId | typeof ALL_FILTER>(ALL_FILTER);
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
+  const [from, setFrom] = useState("1600-01-01");
+  const [to, setTo] = useState("2999-12-31");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [activeQuery, setActiveQuery] = useState<ValidatedEventQuery | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -36,33 +42,37 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const runQuery = () => {
-    setLoading(true);
-    setError(null);
-
-    void getValidatedEvents({
+  const runQuery = (more = false) => {
+    const query: ValidatedEventQuery = more && activeQuery ? { ...activeQuery, cursor: nextCursor ?? undefined } : {
       type: filterType === ALL_FILTER ? undefined : filterType,
       bodyA: filterBodyA === ALL_FILTER ? undefined : filterBodyA,
       bodyB: filterBodyB === ALL_FILTER ? undefined : filterBodyB,
-    })
+      from: `${from}T00:00:00Z`,
+      to: `${to}T23:59:59Z`,
+      descending: sortOrder === "desc",
+    };
+    if (!more && (!from || !to || from > to)) { setError("Choose an increasing date range."); return; }
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    setLoading(true);
+    setError(null);
+    if (!more) { setEvents([]); setNextCursor(null); setActiveQuery(query); }
+    void getValidatedEvents(query, controller.signal)
       .then((results) => {
-        setEvents(results);
+        if (controller.signal.aborted) return;
+        setEvents(previous => more ? [...previous, ...results.events] : results.events);
+        setNextCursor(results.nextCursor);
         setHasQueried(true);
       })
       .catch((fetchError: unknown) => {
+        if (controller.signal.aborted) return;
         setError(fetchError instanceof Error ? fetchError.message : "Failed to query validated events.");
       })
       .finally(() => {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
   };
-
-  const sortedEvents = useMemo(() => {
-    return [...events].sort((left, right) => {
-      const difference = left.time.getTime() - right.time.getTime();
-      return sortOrder === "asc" ? difference : -difference;
-    });
-  }, [events, sortOrder]);
 
   return (
     <div className="validated-events-backdrop" onClick={onClose}>
@@ -81,6 +91,8 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
         </header>
 
         <div className="validated-events-filters">
+          <label className="field"><span>From (UTC)</span><input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
+          <label className="field"><span>To (UTC)</span><input type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
           <label className="field">
             <span>Type</span>
             <select
@@ -143,23 +155,27 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
             type="button"
             className="next-event-button validated-events-query"
             disabled={loading}
-            onClick={runQuery}
+            onClick={() => runQuery()}
           >
             {loading ? "Querying..." : "Query"}
           </button>
         </div>
 
         <div className="validated-events-scroll">
+          {activeQuery ? <p className="status-text">
+            Results for {activeQuery.from?.slice(0, 10)} – {activeQuery.to?.slice(0, 10)},
+            {activeQuery.descending ? " latest first" : " earliest first"}. Selector changes apply when you click Query.
+          </p> : null}
           {error ? <p className="status-text">{error}</p> : null}
           {!loading && !error && !hasQueried ? (
             <p className="status-text">Choose criteria and run a query to list validated events.</p>
           ) : null}
-          {!loading && !error && hasQueried && sortedEvents.length === 0 ? (
+          {!loading && !error && hasQueried && events.length === 0 ? (
             <p className="status-text">No validated events match these criteria.</p>
           ) : null}
 
           {!error
-            ? sortedEvents.map((event) => (
+            ? events.map((event) => (
                 <article className="validated-event-row" key={event.id}>
                   <strong>{formatEventTitle(event)}</strong>
                   <span>{formatDate(event.time)} UTC</span>
@@ -175,10 +191,13 @@ export default function ValidatedEventsOverlay({ onClose }: ValidatedEventsOverl
                     </small>
                   ) : null}
                   {event.magnitude !== null ? <small>Magnitude: {event.magnitude.toFixed(2)}</small> : null}
-                  <small>Source: JPL</small>
+                  <small>Source: {formatSource(event.source)}</small>
                 </article>
               ))
             : null}
+          {nextCursor && !error ? <button type="button" disabled={loading} onClick={() => runQuery(true)}>
+            {loading ? "Loading…" : "Load more"}
+          </button> : null}
         </div>
       </div>
     </div>

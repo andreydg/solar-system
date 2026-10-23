@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { parseUtcInput } from "../lib/timeUtils";
+import EventExplainer from "./EventExplainer";
 import ValidatedEventsOverlay from "./ValidatedEventsOverlay";
 import EventTypesOverlay from "./EventTypesOverlay";
 import {
@@ -12,17 +14,19 @@ import {
   type CatalogEventType,
 } from "../domain/eventTypes";
 import type { CatalogEventType as ApiCatalogEventType } from "../lib/eventCatalogApi";
-import { isJplSource } from "../lib/eventCatalogApi";
 import { formatDate, formatDistance, formatEventTitle, formatSource } from "../lib/formatters";
 import type { CSSProperties } from "react";
 
 type ControlPanelProps = {
   currentTime: Date;
+  onShare: () => void;
+  sharedLink: string | null;
   eventBodyA: BodyId;
   eventBodyB: BodyId;
   eventPairIsValid: boolean;
   eventResult: EventResultView | null;
   eventStatus: string | null;
+  trajectoryStatus?: string | null;
   eventType: ApiCatalogEventType;
   isPlaying: boolean;
   isSearching: boolean;
@@ -47,7 +51,7 @@ type CatalogMetadata = {
   jplCheckedAtUtc: Date | null;
   jplDeltaKm: number | null;
   jplRawSummary: string | null;
-  validationStatus: "pending" | "validated" | "failed";
+  validationStatus: "pending" | "validated" | "failed" | "unavailable";
 };
 
 type EventResultView = Partial<CatalogMetadata> & {
@@ -63,11 +67,14 @@ type EventResultView = Partial<CatalogMetadata> & {
 
 export default function ControlPanel({
   currentTime,
+  onShare,
+  sharedLink,
   eventBodyA,
   eventBodyB,
   eventPairIsValid,
   eventResult,
   eventStatus,
+  trajectoryStatus,
   eventType,
   isPlaying,
   isSearching,
@@ -84,8 +91,10 @@ export default function ControlPanel({
   onSpeedChange,
   onToggleBody,
 }: ControlPanelProps) {
+  const [explanation, setExplanation] = useState<{ time: Date; type: CatalogEventType; body: BodyId } | null>(null);
   const [showEventHelp, setShowEventHelp] = useState(false);
   const [showValidatedEvents, setShowValidatedEvents] = useState(false);
+  const [dateDraft, setDateDraft] = useState<string | null>(null);
   const searchDisabled = isSearching || !eventPairIsValid;
   const bodyBOptions = locksEarthAsBodyA ? getEventTargetOptions(eventType) : BODIES.map((body) => body.id);
 
@@ -103,14 +112,24 @@ export default function ControlPanel({
         </div>
 
         <label className="field">
-          <span>Jump to date</span>
+          <span>Jump to date (UTC)</span>
           <input
             type="datetime-local"
-            value={toDateTimeLocalValue(currentTime)}
-            onChange={(event) => onDateChange(new Date(event.target.value))}
+            min="1600-01-01T00:00"
+            max="2999-12-31T23:59"
+            value={dateDraft ?? toDateTimeLocalValue(currentTime)}
+            onFocus={() => setDateDraft(toDateTimeLocalValue(currentTime))}
+            onBlur={() => setDateDraft(null)}
+            aria-describedby="date-edit-help"
+            onChange={(event) => {
+              setDateDraft(event.target.value);
+              const time = parseUtcInput(event.target.value);
+              if (time) onDateChange(time);
+            }}
           />
         </label>
 
+        <small id="date-edit-help">Changing the date pauses playback and clears the selected event. Incomplete edits reset when you leave the field.</small>
         <div className="button-row">
           <button type="button" onClick={onPlayToggle}>
             {isPlaying ? "Pause" : "Play"}
@@ -150,6 +169,8 @@ export default function ControlPanel({
         </div>
       </section>
 
+      {trajectoryStatus ? <p className="status-text" role="status">{trajectoryStatus}</p> : null}
+
       <section className="control-section">
         <h2>Events</h2>
         <label className="field">
@@ -166,6 +187,7 @@ export default function ControlPanel({
             </button>
           </span>
           <select
+            aria-label="Event type"
             value={eventType}
             onChange={(event) => onEventTypeChange(event.target.value as ApiCatalogEventType)}
           >
@@ -257,12 +279,13 @@ export default function ControlPanel({
               <small>Magnitude: {eventResult.magnitude.toFixed(2)}</small>
             ) : null}
             {eventResult.source ? <small>Source: {formatSource(eventResult.source)}</small> : null}
-            {eventResult.validationStatus === "validated" ? <small>Validated</small> : null}
-            {!isJplSource(eventResult.source) &&
-            !isJplSource(eventResult.computedSource) &&
-            (eventResult.validationStatus === "pending" || eventResult.validationStatus === "failed") ? (
-              <small>Validation pending</small>
-            ) : null}
+            <small>{eventResult.validationStatus === "validated"
+              ? "JPL geometry checked · 5-minute refinement grid"
+              : eventResult.validationStatus === "unavailable" ? "Provisional · JPL data unavailable"
+              : eventResult.validationStatus === "failed" ? "Validation failed · not a confirmed event"
+              : eventResult.validationStatus === "pending" ? "Provisional · validation queued"
+              : "Browser approximation · not JPL-validated"}</small>
+            {eventResult.type === "brightestApproach" ? <small>Brightness uses an approximate photometric model.</small> : null}
           </div>
         ) : null}
 
@@ -277,6 +300,19 @@ export default function ControlPanel({
         </div>
       </section>
 
+      <section className="control-section">
+        <h2>Explore &amp; share</h2>
+        <div className="button-row">
+          <button type="button" disabled={!eventPairIsValid} onClick={onShare}>Share view</button>
+          <button type="button" onClick={() => setExplanation({ time: currentTime, type: eventType, body: eventBodyB === "earth" ? eventBodyA : eventBodyB })}>Explain this date</button>
+        </div>
+        {sharedLink ? <label className="field"><span>Share link (date, bodies, and focus)</span>
+          <input readOnly value={sharedLink} onFocus={event => event.target.select()} />
+        </label> : null}
+        <p className="explanation-note">Shared views open paused. Links preserve the scene and search criteria, not a claim that an event is validated.</p>
+        <nav aria-label="Learn about planetary events"><a href="/learn/retrograde.html">Why do planets appear to move backward?</a></nav>
+        {explanation ? <><EventExplainer {...explanation} /><button type="button" onClick={() => setExplanation(null)}>Close explanation</button></> : null}
+      </section>
       {showEventHelp ? (
         <EventTypesOverlay selectedType={eventType} onClose={() => setShowEventHelp(false)} />
       ) : null}

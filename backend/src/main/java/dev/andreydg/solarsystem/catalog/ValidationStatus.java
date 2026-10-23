@@ -5,7 +5,8 @@ import java.util.Locale;
 public enum ValidationStatus {
     PENDING,
     VALIDATED,
-    FAILED;
+    FAILED,
+    UNAVAILABLE;
 
     public static ValidationStatus fromStoredValue(Object value) {
         if (value == null) {

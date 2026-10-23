@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
@@ -26,8 +27,9 @@ import org.springframework.web.client.RestClient;
 
 @Component
 public class JplHorizonsClient {
+    static final java.time.Duration CAPACITY_WAIT = java.time.Duration.ofSeconds(5);
     private static final DateTimeFormatter HORIZONS_TIME_FORMAT = DateTimeFormatter
-        .ofPattern("yyyy-MM-dd HH:mm")
+        .ofPattern("yyyy-MM-dd HH:mm:ss")
         .withZone(ZoneOffset.UTC);
     private static final DateTimeFormatter HORIZONS_ROW_TIME_FORMAT = new DateTimeFormatterBuilder()
         .parseCaseInsensitive()
@@ -70,13 +72,14 @@ public class JplHorizonsClient {
     }
 
     public List<JplVector> vectors(BodyId body, Instant startUtc, Instant stopUtc, String stepSize) {
+        ValidationBudget.check();
         String command = COMMAND_BY_BODY.get(body);
         if (command == null) {
             throw new JplHorizonsException("No JPL Horizons command configured for " + body.apiValue());
         }
 
         // Pin the frame rather than rely on Horizons defaults: J2000 ecliptic (ICRF), the same frame
-        // as the VSOP elements used for events. The browser rotates these into its J2000
+        // as the Keplerian elements used for events. The browser rotates these into its J2000
         // equatorial scene (src/lib/ephemerisApi.ts).
         URI uri = buildUri(
             "format", "text",
@@ -85,6 +88,10 @@ public class JplHorizonsClient {
             "REF_SYSTEM", quote("ICRF"),
             "REF_PLANE", quote("ECLIPTIC"),
             "EPHEM_TYPE", quote("VECTORS"),
+            "TIME_TYPE", quote("UT"),
+            "CAL_TYPE", quote("GREGORIAN"),
+            "TIME_DIGITS", quote("FRACSEC"),
+            "VEC_CORR", quote("NONE"),
             "VEC_TABLE", quote("2"),
             "OUT_UNITS", quote("AU-D"),
             "CSV_FORMAT", quote("YES"),
@@ -103,10 +110,11 @@ public class JplHorizonsClient {
         JplHorizonsException lastTransient = null;
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            ValidationBudget.check();
             try {
                 return fetchOnce(body, contextTime, uri);
             } catch (JplHorizonsException exception) {
-                if (!exception.isTransient()) {
+                if (!exception.isTransient() || exception instanceof ResponseReadFailure && !ValidationBudget.isActive()) {
                     throw exception;
                 }
                 lastTransient = exception;
@@ -125,7 +133,15 @@ public class JplHorizonsClient {
     }
 
     private String fetchOnce(BodyId body, Instant contextTime, URI uri) {
-        concurrencyLimiter.acquireUninterruptibly();
+        try {
+            if (!concurrencyLimiter.tryAcquire(CAPACITY_WAIT.toMillis(), TimeUnit.MILLISECONDS)) {
+                throw new JplHorizonsException("JPL request capacity exceeded", true);
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new JplHorizonsException("Interrupted waiting for JPL capacity", exception, true);
+        }
+        long started = System.nanoTime();
         try {
             String response = restClient.get()
                 .uri(uri)
@@ -162,8 +178,19 @@ public class JplHorizonsClient {
                 ),
                 transientStatus
             );
+        } catch (org.springframework.web.client.RestClientException exception) {
+            // Includes transport failures while converting a partially received response body.
+            throw new ResponseReadFailure(body, contextTime, exception, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
         } finally {
             concurrencyLimiter.release();
+        }
+    }
+
+    // Public calls avoid repeated slow body reads; budgeted workers retain their reserved inline retries.
+    private static final class ResponseReadFailure extends JplHorizonsException {
+        ResponseReadFailure(BodyId body, Instant time, Throwable cause, long elapsedMillis) {
+            super("JPL Horizons response read failed for %s at %s: %s (elapsed %d ms)".formatted(
+                body.apiValue(), time, org.springframework.core.NestedExceptionUtils.getMostSpecificCause(cause), elapsedMillis), cause, true);
         }
     }
 
@@ -180,7 +207,7 @@ public class JplHorizonsClient {
 
     private static void validateResponse(String response) {
         if (response.contains("No ephemeris")) {
-            throw new JplHorizonsException(extractHorizonsMessage(response));
+            throw new JplCoverageException(extractHorizonsMessage(response));
         }
 
         if (response.contains("Matching small-bodies:") || response.contains("To SELECT, enter record")) {
@@ -204,7 +231,7 @@ public class JplHorizonsClient {
             .orElse("JPL Horizons request failed");
     }
 
-    private static List<JplVector> parseVectors(BodyId body, String response) {
+    public static List<JplVector> parseVectors(BodyId body, String response) {
         List<JplVector> vectors = new ArrayList<>();
         boolean inData = false;
 

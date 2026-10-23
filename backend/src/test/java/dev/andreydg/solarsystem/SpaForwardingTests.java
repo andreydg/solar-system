@@ -20,12 +20,93 @@ import org.springframework.web.servlet.resource.ResourceHttpRequestHandler;
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
         "solar-system.storage=in-memory",
+        "solar-system.admin-token=test-token-that-is-at-least-32-chars",
         "solar-system.jpl.async-validation-enabled=false",
         "solar-system.trajectories.cache-dir=../data/trajectories",
         "solar-system.trajectories.refresh-from-jpl=false"
     }
 )
+@org.springframework.context.annotation.Import(OfflineEphemerisConfiguration.class)
+@org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
 class SpaForwardingTests {
+
+    @Test
+    void missingCrawlerResourcesAreNotServerErrors() {
+        for (String path : new String[] {"/robots.txt", "/sitemap.xml"}) {
+            assertThat(client().get().uri(path).retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(404);
+        }
+    }
+
+    @Test
+    void validationGetCannotMutateAndMalformedInputIsBadRequest() {
+        var legacyGet = client().get().uri("/api/validation/jpl/event/nonexistent")
+            .header("Authorization", "Bearer test-token-that-is-at-least-32-chars")
+            .retrieve().toBodilessEntity();
+        assertThat(legacyGet.getStatusCode().value()).isEqualTo(405);
+        assertThat(client().post().uri("/api/events/generate").contentType(MediaType.APPLICATION_JSON)
+            .body("{bad json").retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(400);
+        assertThat(client().get().uri("/api/events").retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(400);
+    }
+
+    @Test
+    void realHttpMediaAndFormFailuresStayBounded(org.springframework.boot.test.system.CapturedOutput output) {
+        assertThat(context.getBeansOfType(org.springframework.web.filter.FormContentFilter.class)).isEmpty();
+        assertThat(org.springframework.core.annotation.AnnotatedElementUtils.findMergedAnnotation(
+            dev.andreydg.solarsystem.api.ApiGuardFilter.class, org.springframework.core.annotation.Order.class).value())
+            .isEqualTo(org.springframework.core.Ordered.HIGHEST_PRECEDENCE);
+        assertThat(client().post().uri("/api/events/generate").contentType(MediaType.TEXT_PLAIN)
+            .body("secret").retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(415);
+        var invalid = client().post().uri("/api/events/generate").contentType(MediaType.APPLICATION_JSON)
+            .body("{secret").retrieve().toEntity(String.class);
+        assertThat(invalid.getStatusCode().value()).isEqualTo(400);
+        assertThat(invalid.getBody()).contains("Invalid JSON request body").doesNotContain("secret", "GenerateEventsRequest");
+        var unacceptable = client().get().uri("/api/health").accept(MediaType.IMAGE_PNG).retrieve().toEntity(String.class);
+        assertThat(unacceptable.getStatusCode().value()).isEqualTo(406);
+        assertThat(unacceptable.getBody()).isNullOrEmpty();
+        assertThat(output.getAll()).doesNotContain("Failure in @ExceptionHandler");
+        for (var method : new org.springframework.http.HttpMethod[] {
+                org.springframework.http.HttpMethod.PUT, org.springframework.http.HttpMethod.PATCH, org.springframework.http.HttpMethod.DELETE }) {
+            assertThat(client().method(method).uri("/api/events/generate")
+                .contentType(MediaType.APPLICATION_FORM_URLENCODED).body("x=" + "z".repeat(5000))
+                .retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(413);
+        }
+    }
+
+    @Test
+    void allHandledErrorsIgnoreNonJsonAcceptWithoutHandlerWarnings(org.springframework.boot.test.system.CapturedOutput output) {
+        for (var accept : new MediaType[] {MediaType.TEXT_HTML, MediaType.IMAGE_PNG}) {
+            for (String path : new String[] {
+                "/api/events?type=bad&bodyA=earth&bodyB=mars&from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z",
+                "/api/ephemeris/trajectory?body=mars", "/api/events" }) {
+                var response = client().get().uri(path).accept(accept).retrieve().toEntity(String.class);
+                assertThat(response.getStatusCode().value()).as(path).isEqualTo(400);
+                assertThat(response.getHeaders().getContentType().isCompatibleWith(MediaType.APPLICATION_JSON)).isTrue();
+            }
+            for (String json : new String[] {"{bad", "{\"type\":\"bad\",\"bodyA\":\"earth\",\"bodyB\":\"mars\",\"from\":\"2026-01-01T00:00:00Z\",\"to\":\"2027-01-01T00:00:00Z\"}"}) {
+                assertThat(client().post().uri("/api/events/generate").accept(accept).contentType(MediaType.APPLICATION_JSON)
+                    .body(json).retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(400);
+            }
+            assertThat(client().post().uri("/api/events/generate").accept(accept).contentType(MediaType.TEXT_PLAIN)
+                .body("wrong type").retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(415);
+            assertThat(client().get().uri("/api/missing").accept(accept).retrieve().toBodilessEntity().getStatusCode().value()).isEqualTo(404);
+        }
+        assertThat(output.getAll()).doesNotContain("Failure in @ExceptionHandler");
+    }
+
+    @Test
+    void chunkedMutationMethodsAreCountedBeforeFormParsing() throws Exception {
+        var http = java.net.http.HttpClient.newBuilder().version(java.net.http.HttpClient.Version.HTTP_1_1).build();
+        for (String method : new String[] {"PUT", "PATCH", "DELETE"}) {
+            var body = java.net.http.HttpRequest.BodyPublishers.ofInputStream(
+                () -> new java.io.ByteArrayInputStream(("x=" + "z".repeat(5000)).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+            assertThat(body.contentLength()).isEqualTo(-1);
+            var request = java.net.http.HttpRequest.newBuilder(java.net.URI.create("http://localhost:" + port + "/api/events/generate"))
+                .header("Content-Type", "application/x-www-form-urlencoded").method(method, body).build();
+            assertThat(http.send(request, java.net.http.HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(413);
+        }
+    }
+
+    @Autowired private org.springframework.context.ApplicationContext context;
 
     @LocalServerPort
     private int port;
@@ -60,9 +141,7 @@ class SpaForwardingTests {
         ResponseEntity<String> response =
             client().get().uri("/definitely-not-a-real-asset.js").retrieve().toEntity(String.class);
 
-        assertThat(response.getStatusCode().is2xxSuccessful())
-            .as("asset-like path should not resolve to the SPA shell, got %s", response.getStatusCode())
-            .isFalse();
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
         if (response.getBody() != null) {
             assertThat(response.getBody()).doesNotContain("<div id=\"root\">");
         }
@@ -93,7 +172,7 @@ class SpaForwardingTests {
         // not return the SPA shell (the old first-segment regex forwarded these).
         ResponseEntity<String> response =
             client().get().uri("/textures/does-not-exist.png").retrieve().toEntity(String.class);
-        assertThat(response.getStatusCode().is2xxSuccessful()).isFalse();
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
         if (response.getBody() != null) {
             assertThat(response.getBody()).doesNotContain("<div id=\"root\">");
         }
@@ -123,7 +202,7 @@ class SpaForwardingTests {
         // An unmatched /api/** path must not resolve to the SPA shell.
         ResponseEntity<String> response =
             client().get().uri("/api/no-such-endpoint").retrieve().toEntity(String.class);
-        assertThat(response.getStatusCode().is2xxSuccessful()).isFalse();
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
         if (response.getBody() != null) {
             assertThat(response.getBody()).doesNotContain("<div id=\"root\">");
         }

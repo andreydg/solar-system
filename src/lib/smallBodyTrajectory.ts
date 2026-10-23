@@ -1,5 +1,4 @@
 import { BODY_BY_ID, type BodyId, type Vec3 } from "../domain/solarSystem";
-import { prewarmSmallBodyTrajectories } from "./ephemerisApi";
 
 const DAY_MS = 86_400_000;
 
@@ -60,7 +59,29 @@ export function chunkScenePoints(points: [number, number, number][], chunkSize =
 }
 
 export function buildOrbitTrailSegments(trajectory: SmallBodyTrajectory): Vec3[][] {
-  return splitTrajectorySegments(trajectory);
+  return splitTrajectorySegments(trajectory).map(segment => simplifyTrail(segment));
+}
+
+/** Rendering only: retain bends within 0.005 AU; interpolation keeps every original sample. */
+export function simplifyTrail(points: Vec3[], tolerance = 0.005): Vec3[] {
+  if (points.length < 3) return points;
+  const keep = new Set([0, points.length - 1]);
+  const stack: [number, number][] = [[0, points.length - 1]];
+  while (stack.length) {
+    const [first, last] = stack.pop()!;
+    const a = points[first], b = points[last];
+    const dx = b.x-a.x, dy = b.y-a.y, dz = b.z-a.z;
+    const length2 = dx*dx + dy*dy + dz*dz;
+    let worst = tolerance*tolerance, selected = -1;
+    for (let i=first+1; i<last; i++) {
+      const p = points[i];
+      const t = length2 ? Math.max(0, Math.min(1, ((p.x-a.x)*dx+(p.y-a.y)*dy+(p.z-a.z)*dz)/length2)) : 0;
+      const distance2 = (p.x-a.x-t*dx)**2 + (p.y-a.y-t*dy)**2 + (p.z-a.z-t*dz)**2;
+      if (distance2 > worst) { worst = distance2; selected = i; }
+    }
+    if (selected !== -1) { keep.add(selected); stack.push([first, selected], [selected, last]); }
+  }
+  return [...keep].sort((a,b) => a-b).map(i => points[i]);
 }
 
 function resolveQueryTime(
@@ -84,7 +105,7 @@ function resolveQueryTime(
   }
 
   const spanDays = (last.time.getTime() - first.time.getTime()) / DAY_MS;
-  const offsetDays = ((wrappedDays % (spanDays + 1)) + (spanDays + 1)) % (spanDays + 1);
+  const offsetDays = ((wrappedDays % (spanDays)) + (spanDays + 1)) % (spanDays + 1);
   return new Date(first.time.getTime() + offsetDays * DAY_MS);
 }
 
@@ -167,22 +188,4 @@ export function trajectoryCoversTime(trajectory: SmallBodyTrajectory, time: Date
     targetMs >= trajectory[0].time.getTime() &&
     targetMs <= trajectory[trajectory.length - 1].time.getTime()
   );
-}
-
-export async function loadSmallBodyTrajectoriesWithRetry(
-  attempts = 6,
-  delayMs = 2500,
-): Promise<Partial<Record<BodyId, SmallBodyTrajectory>>> {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const trajectories = await prewarmSmallBodyTrajectories();
-    const loadedCount = Object.values(trajectories).filter((trajectory) => (trajectory?.length ?? 0) > 1).length;
-
-    if (loadedCount >= 4) {
-      return trajectories;
-    }
-
-    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
-  }
-
-  return prewarmSmallBodyTrajectories();
 }

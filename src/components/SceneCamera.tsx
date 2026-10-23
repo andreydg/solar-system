@@ -1,6 +1,6 @@
 import { OrbitControls } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { BODY_BY_ID, isComet, type BodyId, type BodyPosition } from "../domain/solarSystem";
@@ -69,7 +69,7 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
   const latestPositions = useRef(positions);
   const latestHighlighted = useRef(highlightedBodies);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     latestPositions.current = positions;
     latestHighlighted.current = highlightedBodies;
   }, [positions, highlightedBodies]);
@@ -81,14 +81,18 @@ export default function SceneCamera({ focusedBody, highlightedBodies, positions 
       const second = positions.find((position) => position.body === highlightedBodies[1]);
       if (first && second) {
         framedEvent.current = highlightedBodies;
-        shownFocus.current = focusedBody;
-        request.current = {
-          kind: "pair",
-          points: [toScenePoint(first.positionAu), toScenePoint(second.positionAu)],
-          // Event bodies are drawn highlighted (enlarged); leave room for the bigger of the two.
-          radius: Math.max(...highlightedBodies.map((body) => renderedRadius(body, true))),
-        };
-        return;
+        // Restoring history may supply a new event object AND an explicit body focus.
+        // Focus wins; remember this event so it cannot re-frame on the next render.
+        if (!focusedBody) {
+          shownFocus.current = null;
+          request.current = {
+            kind: "pair",
+            points: [toScenePoint(first.positionAu), toScenePoint(second.positionAu)],
+            // Event bodies are drawn highlighted (enlarged); leave room for the bigger of the two.
+            radius: Math.max(...highlightedBodies.map((body) => renderedRadius(body, true))),
+          };
+          return;
+        }
       }
     }
 

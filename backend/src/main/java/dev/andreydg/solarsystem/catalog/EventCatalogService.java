@@ -13,7 +13,6 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
@@ -23,7 +22,6 @@ public class EventCatalogService {
     private static final Duration DEFAULT_COARSE_STEP = Duration.ofDays(5);
     private static final Duration PERIHELION_COARSE_STEP = Duration.ofDays(90);
     private static final Duration DAILY_STEP = Duration.ofDays(1);
-    private static final double TRANSIT_ELONGATION_DEG = 0.5;
     private static final Map<BodyId, Double> BASE_MAGNITUDE = new EnumMap<>(BodyId.class);
 
     static {
@@ -42,38 +40,27 @@ public class EventCatalogService {
 
     private final CompositeEphemerisProvider ephemerisProvider;
     private final EventCatalogRepository repository;
-    private final ApplicationEventPublisher eventPublisher;
+    private final EmptyWindowCache emptyWindows = new EmptyWindowCache(java.time.Clock.systemUTC());
 
     public EventCatalogService(
         CompositeEphemerisProvider ephemerisProvider,
-        EventCatalogRepository repository,
-        ApplicationEventPublisher eventPublisher
+        EventCatalogRepository repository
     ) {
         this.ephemerisProvider = ephemerisProvider;
         this.repository = repository;
-        this.eventPublisher = eventPublisher;
-    }
-
-    public List<CatalogEvent> query(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
-        validateRequest(type, bodyA, bodyB);
-        List<CatalogEvent> events = repository.find(type, bodyA, bodyB, from, to).stream()
-            .filter(this::isStoredEventValid)
-            .toList();
-        List<String> retryableIds = events.stream()
-            .filter(event -> event.validationStatus() == ValidationStatus.FAILED)
-            .filter(event -> event.type().supportsJplValidation())
-            .map(CatalogEvent::id)
-            .toList();
-
-        if (!retryableIds.isEmpty()) {
-            eventPublisher.publishEvent(new CatalogEventsGeneratedEvent(retryableIds));
-        }
-
-        return events;
     }
 
     public List<CatalogEvent> generate(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
+        CatalogLimits.checkRange(from, to);
+        try (var budget = GenerationBudget.start()) {
+            return generateWithinBudget(type, bodyA, bodyB, from, to);
+        }
+    }
+
+    private List<CatalogEvent> generateWithinBudget(EventType type, BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
         validateRequest(type, bodyA, bodyB);
+        var window = new EmptyWindowCache.Key(type, CatalogQuery.pairKey(bodyA, bodyB), from, to);
+        if (emptyWindows.contains(window)) return List.of();
         BodyPair pair = BodyPair.of(bodyA, bodyB);
         List<CatalogEvent> events = switch (type) {
             case CLOSEST_APPROACH -> generateExtremalApproaches(
@@ -105,31 +92,23 @@ public class EventCatalogService {
 
         List<CatalogEvent> validEvents = events.stream()
             .filter(this::isStoredEventValid)
+            .filter(event -> !event.displayTimeUtc().isBefore(from) && !event.displayTimeUtc().isAfter(to))
             .toList();
 
-        List<CatalogEvent> existingEvents = repository.find(type, bodyA, bodyB, from, to);
-        Map<String, CatalogEvent> existingById = existingEvents.stream()
-            .collect(Collectors.toMap(CatalogEvent::id, e -> e, (first, second) -> first));
-
-        List<CatalogEvent> eventsToStore = validEvents.stream()
-            .filter(event -> !existingById.containsKey(event.id()))
-            .toList();
-
-        if (!eventsToStore.isEmpty()) {
-            repository.upsertAll(eventsToStore);
+        GenerationBudget.check();
+        if (validEvents.size() > 1000) {
+            throw new IllegalArgumentException("Too many events; choose a smaller date window");
         }
 
-        List<String> validatableIds = eventsToStore.stream()
-            .filter(event -> event.type().supportsJplValidation())
-            .map(CatalogEvent::id)
-            .toList();
+        var receipt = repository.createMissing(validEvents);
+        List<CatalogEvent> stored = receipt.stored();
 
-        if (!validatableIds.isEmpty()) {
-            eventPublisher.publishEvent(new CatalogEventsGeneratedEvent(validatableIds));
-        }
+        if (validEvents.isEmpty()) emptyWindows.remember(window);
 
-        return validEvents.stream()
-            .map(event -> existingById.getOrDefault(event.id(), event))
+        return stored.stream()
+            .filter(this::isStoredEventValid)
+            .filter(event -> event.validationStatus() != ValidationStatus.FAILED)
+            .filter(event -> !event.displayTimeUtc().isBefore(from) && !event.displayTimeUtc().isAfter(to))
             .toList();
     }
 
@@ -138,82 +117,15 @@ public class EventCatalogService {
         Optional<BodyId> bodyA,
         Optional<BodyId> bodyB
     ) {
-        return repository.findAllValidated().stream()
-            .filter(this::isStoredEventValid)
-            .filter(event -> type.isEmpty() || event.type() == type.get())
-            .filter(event -> bodyA.isEmpty() || involvesBody(event, bodyA.get()))
-            .filter(event -> bodyB.isEmpty() || involvesBody(event, bodyB.get()))
-            .sorted(Comparator.comparing(CatalogEvent::displayTimeUtc))
-            .toList();
+        return search(new CatalogQuery(type.orElse(null), bodyA.orElse(null), bodyB.orElse(null),
+            CatalogLimits.MIN_TIME, CatalogLimits.MAX_TIME.minusNanos(1), true, false, 100, null)).events();
     }
 
-    private static boolean involvesBody(CatalogEvent event, BodyId body) {
-        return event.bodyA() == body || event.bodyB() == body;
+    public CatalogPage search(CatalogQuery query) {
+        var page = repository.search(query);
+        return new CatalogPage(page.events().stream().filter(this::isStoredEventValid).toList(), page.nextCursor());
     }
 
-    public CatalogEvent storeValidation(
-        CatalogEvent event,
-        Instant validatedTimeUtc,
-        Double validatedDistanceAu,
-        Double validatedAngleDeg,
-        Double validatedMagnitude,
-        Double jplDeltaKm,
-        String summary
-    ) {
-        CatalogEvent updated = new CatalogEvent(
-            event.id(),
-            event.type(),
-            event.bodyA(),
-            event.bodyB(),
-            event.computedTimeUtc(),
-            event.computedDistanceAu(),
-            event.computedAngleDeg(),
-            event.computedMagnitude(),
-            event.computedSource(),
-            validatedTimeUtc,
-            validatedDistanceAu,
-            validatedAngleDeg,
-            validatedMagnitude,
-            "JPL_HORIZONS",
-            ValidationStatus.VALIDATED,
-            event.rangeStartUtc(),
-            event.rangeEndUtc(),
-            event.generatedAtUtc(),
-            Instant.now(),
-            jplDeltaKm,
-            summary
-        );
-        repository.upsert(updated);
-        return updated;
-    }
-
-    public CatalogEvent storeValidationFailure(CatalogEvent event, String summary) {
-        CatalogEvent updated = new CatalogEvent(
-            event.id(),
-            event.type(),
-            event.bodyA(),
-            event.bodyB(),
-            event.computedTimeUtc(),
-            event.computedDistanceAu(),
-            event.computedAngleDeg(),
-            event.computedMagnitude(),
-            event.computedSource(),
-            event.validatedTimeUtc(),
-            event.validatedDistanceAu(),
-            event.validatedAngleDeg(),
-            event.validatedMagnitude(),
-            event.validatedSource(),
-            ValidationStatus.FAILED,
-            event.rangeStartUtc(),
-            event.rangeEndUtc(),
-            event.generatedAtUtc(),
-            Instant.now(),
-            event.jplDeltaKm(),
-            summary
-        );
-        repository.upsert(updated);
-        return updated;
-    }
 
     public Optional<CatalogEvent> findById(String id) {
         return repository.findById(id);
@@ -230,9 +142,10 @@ public class EventCatalogService {
         List<DistanceSample> candidates = new ArrayList<>();
         Duration coarseStep = coarseStepFor(bodyA, bodyB, from, to);
         DistanceSample previous = null;
-        DistanceSample current = sampleDistance(bodyA, bodyB, from);
+        Instant scanStart = gridFloor(from, coarseStep).minus(coarseStep), scanEnd = to.plus(coarseStep.multipliedBy(2));
+        DistanceSample current = sampleDistance(bodyA, bodyB, scanStart);
 
-        for (Instant time = from.plus(coarseStep); !time.isAfter(to); time = time.plus(coarseStep)) {
+        for (Instant time = scanStart.plus(coarseStep); !time.isAfter(scanEnd); time = time.plus(coarseStep)) {
             DistanceSample next = sampleDistance(bodyA, bodyB, time);
 
             if (previous != null && isLocalExtremum(previous, current, next, findMinimum)) {
@@ -243,20 +156,17 @@ public class EventCatalogService {
             current = next;
         }
 
-        if (candidates.isEmpty()) {
-            candidates.add(refineDistanceExtremum(bodyA, bodyB, from, to, Duration.ofHours(6), findMinimum));
-        }
 
         Instant generatedAt = Instant.now();
         return candidates.stream()
-            .map(candidate -> refineDistanceExtremum(
-                bodyA,
-                bodyB,
-                candidate.time().minus(coarseStep.multipliedBy(2)),
-                candidate.time().plus(coarseStep.multipliedBy(2)),
-                Duration.ofHours(1),
-                findMinimum
-            ))
+            .flatMap(candidate -> {
+                Instant start = later(scanStart, candidate.time().minus(coarseStep));
+                Instant end = earlier(scanEnd, candidate.time().plus(coarseStep));
+                var refined = refineDistanceExtremum(bodyA, bodyB, start, end, Duration.ofHours(1), findMinimum);
+                // A bracket boundary is not an extremum; another candidate brackets the real one.
+                return refined.time().isAfter(start) && refined.time().isBefore(end)
+                    ? java.util.stream.Stream.of(refined) : java.util.stream.Stream.<DistanceSample>empty();
+            })
             .distinct()
             .map(sample -> toEvent(
                 type,
@@ -284,9 +194,10 @@ public class EventCatalogService {
     ) {
         List<CatalogEvent> events = new ArrayList<>();
         Instant generatedAt = Instant.now();
-        AngularSample previous = sampleRelativeLongitude(bodyA, bodyB, from, targetAngleDeg);
+        Instant scanStart = gridFloor(from, DAILY_STEP);
+        AngularSample previous = sampleRelativeLongitude(bodyA, bodyB, scanStart, targetAngleDeg);
 
-        for (Instant time = from.plus(DAILY_STEP); !time.isAfter(to); time = time.plus(DAILY_STEP)) {
+        for (Instant time = scanStart.plus(DAILY_STEP); !time.isAfter(to.plus(DAILY_STEP)); time = time.plus(DAILY_STEP)) {
             AngularSample current = sampleRelativeLongitude(bodyA, bodyB, time, targetAngleDeg);
 
             if (crossesAngularTarget(previous.offsetDeg(), current.offsetDeg())) {
@@ -320,9 +231,11 @@ public class EventCatalogService {
 
         List<ElongationSample> candidates = new ArrayList<>();
         ElongationSample previous = null;
-        ElongationSample current = sampleElongation(target, from);
+        Instant scanStart = gridFloor(from, DAILY_STEP).minus(DAILY_STEP);
+        Instant scanEnd = to.plus(DAILY_STEP.multipliedBy(2));
+        ElongationSample current = sampleElongation(target, scanStart);
 
-        for (Instant time = from.plus(DAILY_STEP); !time.isAfter(to); time = time.plus(DAILY_STEP)) {
+        for (Instant time = scanStart.plus(DAILY_STEP); !time.isAfter(scanEnd); time = time.plus(DAILY_STEP)) {
             ElongationSample next = sampleElongation(target, time);
 
             if (previous != null
@@ -338,6 +251,7 @@ public class EventCatalogService {
         Instant generatedAt = Instant.now();
         return candidates.stream()
             .map(sample -> refineElongationMaximum(target, sample.time().minus(DAILY_STEP), sample.time().plus(DAILY_STEP)))
+            .distinct()
             .map(sample -> toEvent(
                 EventType.GREATEST_ELONGATION,
                 earthPair.bodyA(),
@@ -369,9 +283,10 @@ public class EventCatalogService {
 
         List<CatalogEvent> events = new ArrayList<>();
         Instant generatedAt = Instant.now();
-        RateSample previous = sampleLongitudeRate(target, from);
+        Instant scanStart = gridFloor(from, DAILY_STEP).minus(DAILY_STEP);
+        RateSample previous = sampleLongitudeRate(target, scanStart);
 
-        for (Instant time = from.plus(DAILY_STEP); !time.isAfter(to); time = time.plus(DAILY_STEP)) {
+        for (Instant time = scanStart.plus(DAILY_STEP); !time.isAfter(to.plus(DAILY_STEP)); time = time.plus(DAILY_STEP)) {
             RateSample current = sampleLongitudeRate(target, time);
 
             if (crossing.matches(previous.rateDegPerDay(), current.rateDegPerDay())) {
@@ -405,16 +320,16 @@ public class EventCatalogService {
 
         List<ElongationSample> candidates = new ArrayList<>();
         ElongationSample previous = null;
-        ElongationSample current = sampleElongation(target, from);
+        Instant scanStart = gridFloor(from, DAILY_STEP).minus(DAILY_STEP);
+        Instant scanEnd = to.plus(DAILY_STEP.multipliedBy(2));
+        ElongationSample current = sampleElongation(target, scanStart);
 
-        for (Instant time = from.plus(DAILY_STEP); !time.isAfter(to); time = time.plus(DAILY_STEP)) {
+        for (Instant time = scanStart.plus(DAILY_STEP); !time.isAfter(scanEnd); time = time.plus(DAILY_STEP)) {
             ElongationSample next = sampleElongation(target, time);
 
             if (previous != null
                 && current.elongationDeg() <= previous.elongationDeg()
-                && current.elongationDeg() <= next.elongationDeg()
-                && current.elongationDeg() <= TRANSIT_ELONGATION_DEG
-                && isInferiorConjunction(target, current.time())) {
+                && current.elongationDeg() <= next.elongationDeg()) {
                 candidates.add(current);
             }
 
@@ -429,7 +344,8 @@ public class EventCatalogService {
                 sample.time().minus(DAILY_STEP),
                 sample.time().plus(DAILY_STEP)
             ))
-            .filter(sample -> sample.elongationDeg() <= TRANSIT_ELONGATION_DEG)
+            .distinct()
+            .filter(sample -> overlapsSolarDisk(target, sample))
             .filter(sample -> isInferiorConjunction(target, sample.time()))
             .map(sample -> toEvent(
                 EventType.TRANSIT,
@@ -456,10 +372,13 @@ public class EventCatalogService {
 
         List<MagnitudeSample> candidates = new ArrayList<>();
         MagnitudeSample previous = null;
-        MagnitudeSample current = sampleVisualMagnitude(target, from);
+        // Inner-planet photometry can have closely spaced peaks; window length must not hide them.
+        Duration coarseStep = DEFAULT_COARSE_STEP;
+        Instant scanStart = gridFloor(from, coarseStep).minus(coarseStep);
+        Instant scanEnd = to.plus(coarseStep.multipliedBy(2));
+        MagnitudeSample current = sampleVisualMagnitude(target, scanStart);
 
-        Duration coarseStep = coarseStepFor(BodyId.EARTH, target, from, to);
-        for (Instant time = from.plus(coarseStep); !time.isAfter(to); time = time.plus(coarseStep)) {
+        for (Instant time = scanStart.plus(coarseStep); !time.isAfter(scanEnd); time = time.plus(coarseStep)) {
             MagnitudeSample next = sampleVisualMagnitude(target, time);
 
             if (previous != null
@@ -482,11 +401,15 @@ public class EventCatalogService {
 
         Instant generatedAt = Instant.now();
         return candidates.stream()
-            .map(sample -> refineMagnitudeMinimum(
-                target,
-                sample.time().minus(coarseStep.multipliedBy(2)),
-                sample.time().plus(coarseStep.multipliedBy(2))
-            ))
+            .flatMap(sample -> {
+                Instant start = sample.time().minus(coarseStep);
+                Instant end = sample.time().plus(coarseStep);
+                var refined = refineMagnitudeMinimum(target, start, end);
+                return refined.time().isAfter(start) && refined.time().isBefore(end)
+                    ? java.util.stream.Stream.of(refined) : java.util.stream.Stream.<MagnitudeSample>empty();
+            })
+            .distinct()
+            .filter(sample -> isSignificantBrightnessMinimum(target, sample))
             .map(sample -> toEvent(
                 EventType.BRIGHTEST_APPROACH,
                 earthPair.bodyA(),
@@ -503,13 +426,34 @@ public class EventCatalogService {
             .toList();
     }
 
+    private boolean isSignificantBrightnessMinimum(BodyId target, MagnitudeSample minimum) {
+        if (target != BodyId.MERCURY && target != BodyId.VENUS) return true;
+        // The empirical phase curves contain tiny wiggles. Require a 0.05-mag
+        // rise toward BOTH adjacent shoulders, not merely a discrete local low.
+        // A fixed horizon keeps this independent of the caller's search window.
+        for (int direction : new int[] {-1, 1}) {
+            double previous = minimum.magnitude();
+            boolean significant = false;
+            for (int halfDay = 1; halfDay <= 240; halfDay++) {
+                double value = sampleVisualMagnitude(target, minimum.time().plusSeconds(direction * halfDay * 43200L)).magnitude();
+                if (value < previous - 1e-6) break;
+                if (value - minimum.magnitude() >= 0.05) { significant = true; break; }
+                previous = value;
+            }
+            if (!significant) return false;
+        }
+        return true;
+    }
+
     private List<CatalogEvent> generatePerihelions(BodyPair pair, Instant from, Instant to) {
         BodyPair earthPair = earthObserverPair(pair);
         BodyId target = targetBody(earthPair);
         requireSmallBody(target);
 
+        Instant scanStart = gridFloor(from, PERIHELION_COARSE_STEP).minus(PERIHELION_COARSE_STEP);
+        Instant scanEnd = to.plus(PERIHELION_COARSE_STEP.multipliedBy(2));
         List<DistanceSample> samples = ephemerisProvider
-            .heliocentricDistanceSamples(target, from, to, PERIHELION_COARSE_STEP)
+            .heliocentricDistanceSamples(target, scanStart, scanEnd, PERIHELION_COARSE_STEP)
             .stream()
             .map(sample -> new DistanceSample(sample.timeUtc(), sample.distanceAu()))
             .toList();
@@ -529,9 +473,6 @@ public class EventCatalogService {
             }
         }
 
-        if (candidates.isEmpty()) {
-            candidates.add(refineHeliocentricMinimum(target, from, to, Duration.ofHours(6)));
-        }
 
         candidates = dedupePerihelionCandidates(candidates);
 
@@ -539,8 +480,8 @@ public class EventCatalogService {
         return candidates.stream()
             .map(candidate -> refineHeliocentricMinimum(
                 target,
-                candidate.time().minus(PERIHELION_COARSE_STEP.multipliedBy(2)),
-                candidate.time().plus(PERIHELION_COARSE_STEP.multipliedBy(2)),
+                later(scanStart, candidate.time().minus(PERIHELION_COARSE_STEP.multipliedBy(2))),
+                earlier(scanEnd, candidate.time().plus(PERIHELION_COARSE_STEP.multipliedBy(2))),
                 Duration.ofHours(6)
             ))
             .distinct()
@@ -610,13 +551,35 @@ public class EventCatalogService {
         DistanceSample best = sampleWindow(bodyA, bodyB, start, end, Duration.ofDays(1), findMinimum);
 
         for (Duration step : List.of(Duration.ofHours(6), Duration.ofHours(1), finalStep)) {
-            start = best.time().minus(step.multipliedBy(12));
-            end = best.time().plus(step.multipliedBy(12));
+            start = later(windowStart, best.time().minus(step.multipliedBy(12)));
+            end = earlier(windowEnd, best.time().plus(step.multipliedBy(12)));
             best = sampleWindow(bodyA, bodyB, start, end, step, findMinimum);
         }
 
         return best;
     }
+
+    // Absolute grids make overlapping searches identify the same physical event.
+    private static Instant gridFloor(Instant time, Duration step) {
+        return Instant.ofEpochSecond(Math.floorDiv(time.getEpochSecond(), step.toSeconds()) * step.toSeconds());
+    }
+    private static Instant gridCeiling(Instant time, Duration step) {
+        Instant floor = gridFloor(time, step);
+        return floor.isBefore(time) ? floor.plus(step) : floor;
+    }
+
+    private boolean overlapsSolarDisk(BodyId target, ElongationSample sample) {
+        Vector3Au earth = ephemerisProvider.heliocentricPosition(BodyId.EARTH, sample.time());
+        Vector3Au planet = ephemerisProvider.heliocentricPosition(target, sample.time());
+        double auKm = 149_597_870.7;
+        double sunRadius = Math.asin(695_700 / (earth.magnitude() * auKm));
+        double planetRadius = Math.asin((target == BodyId.MERCURY ? 2439.7 : 6051.8)
+            / (planet.distanceTo(earth) * auKm));
+        return sample.elongationDeg() <= Math.toDegrees(sunRadius + planetRadius);
+    }
+
+    private static Instant later(Instant a, Instant b) { return a.isAfter(b) ? a : b; }
+    private static Instant earlier(Instant a, Instant b) { return a.isBefore(b) ? a : b; }
 
     private DistanceSample sampleWindow(
         BodyId bodyA,
@@ -626,9 +589,10 @@ public class EventCatalogService {
         Duration step,
         boolean findMinimum
     ) {
-        DistanceSample best = sampleDistance(bodyA, bodyB, from);
+        Instant first = gridCeiling(from, step);
+        DistanceSample best = sampleDistance(bodyA, bodyB, first.isAfter(to) ? from : first);
 
-        for (Instant time = from; !time.isAfter(to); time = time.plus(step)) {
+        for (Instant time = first; !time.isAfter(to); time = time.plus(step)) {
             DistanceSample sample = sampleDistance(bodyA, bodyB, time);
 
             if (findMinimum ? sample.distanceAu() < best.distanceAu() : sample.distanceAu() > best.distanceAu()) {
@@ -651,7 +615,7 @@ public class EventCatalogService {
     }
 
     private DistanceSample refineHeliocentricMinimum(BodyId body, Instant start, Instant end, Duration step) {
-        return ephemerisProvider.heliocentricDistanceSamples(body, start, end, step).stream()
+        return ephemerisProvider.heliocentricDistanceSamples(body, gridCeiling(start, step), end, step).stream()
             .map(sample -> new DistanceSample(sample.timeUtc(), sample.distanceAu()))
             .min(Comparator.comparingDouble(DistanceSample::distanceAu))
             .orElseGet(() -> sampleHeliocentricDistance(body, start));
@@ -711,9 +675,11 @@ public class EventCatalogService {
     }
 
     private ElongationSample refineElongationExtremum(BodyId target, Instant start, Instant end, boolean findMinimum) {
-        ElongationSample best = sampleElongation(target, start);
+        Duration step = findMinimum ? Duration.ofMinutes(5) : Duration.ofHours(6);
+        Instant first = gridCeiling(start, step);
+        ElongationSample best = sampleElongation(target, first);
 
-        for (Instant time = start; !time.isAfter(end); time = time.plus(Duration.ofHours(6))) {
+        for (Instant time = first; !time.isAfter(end); time = time.plus(step)) {
             ElongationSample sample = sampleElongation(target, time);
             if (findMinimum ? sample.elongationDeg() < best.elongationDeg() : sample.elongationDeg() > best.elongationDeg()) {
                 best = sample;
@@ -724,9 +690,10 @@ public class EventCatalogService {
     }
 
     private MagnitudeSample refineMagnitudeMinimum(BodyId target, Instant start, Instant end) {
-        MagnitudeSample best = sampleVisualMagnitude(target, start);
+        Instant first = gridCeiling(start, Duration.ofHours(12));
+        MagnitudeSample best = sampleVisualMagnitude(target, first);
 
-        for (Instant time = start; !time.isAfter(end); time = time.plus(Duration.ofHours(12))) {
+        for (Instant time = first; !time.isAfter(end); time = time.plus(Duration.ofHours(12))) {
             MagnitudeSample sample = sampleVisualMagnitude(target, time);
             if (sample.magnitude() < best.magnitude()) {
                 best = sample;
@@ -765,11 +732,11 @@ public class EventCatalogService {
     private Instant refineRateCrossing(BodyId target, Instant start, Instant end, MotionCrossing crossing) {
         Instant low = start;
         Instant high = end;
-        RateSample lowSample = sampleLongitudeRateAt(target, low, Duration.between(low, high));
+        RateSample lowSample = sampleLongitudeRateAt(target, low);
 
         for (int i = 0; i < 24; i++) {
             Instant mid = low.plus(Duration.between(low, high).dividedBy(2));
-            RateSample midSample = sampleLongitudeRateAt(target, mid, Duration.between(mid, high));
+            RateSample midSample = sampleLongitudeRateAt(target, mid);
 
             if (crossing.matches(lowSample.rateDegPerDay(), midSample.rateDegPerDay())) {
                 high = mid;
@@ -782,15 +749,14 @@ public class EventCatalogService {
         return low.plus(Duration.between(low, high).dividedBy(2)).truncatedTo(ChronoUnit.SECONDS);
     }
 
-    private RateSample sampleLongitudeRateAt(BodyId target, Instant time, Duration step) {
-        if (step.isZero()) {
-            step = Duration.ofHours(12);
-        }
-
-        double startLongitude = geocentricLongitude(target, time);
-        double endLongitude = geocentricLongitude(target, time.plus(step));
-        double rateDegPerDay = signedAngleDifference(endLongitude, startLongitude) * Duration.ofDays(1).toHours() / step.toHours();
-        return new RateSample(time.plus(step.dividedBy(2)), rateDegPerDay);
+    private RateSample sampleLongitudeRateAt(BodyId target, Instant time) {
+        Duration step = DAILY_STEP;
+        // Use the detector's fixed one-day centred baseline throughout bisection.
+        // A different baseline can move the zero outside the detected bracket.
+        double startLongitude = geocentricLongitude(target, time.minus(step.dividedBy(2)));
+        double endLongitude = geocentricLongitude(target, time.plus(step.dividedBy(2)));
+        double rateDegPerDay = signedAngleDifference(endLongitude, startLongitude) * 86400.0 / step.toSeconds();
+        return new RateSample(time, rateDegPerDay);
     }
 
     private double geocentricLongitude(BodyId target, Instant time) {
@@ -801,13 +767,7 @@ public class EventCatalogService {
     }
 
     private boolean isStoredEventValid(CatalogEvent event) {
-        if (event.type() != EventType.TRANSIT) {
-            return true;
-        }
-
-        BodyId target = targetBody(BodyPair.of(event.bodyA(), event.bodyB()));
-        return isInferiorConjunction(target, event.computedTimeUtc())
-            && sampleElongation(target, event.computedTimeUtc()).elongationDeg() <= TRANSIT_ELONGATION_DEG;
+        return event.algorithmVersion() == CatalogEvent.CURRENT_ALGORITHM_VERSION;
     }
 
     private boolean isInferiorConjunction(BodyId target, Instant time) {
@@ -895,6 +855,8 @@ public class EventCatalogService {
     }
 
     private static Duration coarseStepFor(BodyId bodyA, BodyId bodyB, Instant from, Instant to) {
+        // Encke has narrow secondary encounters: keep the candidate grid fine in long windows too.
+        if (bodyA == BodyId.ENCKE || bodyB == BodyId.ENCKE) return DEFAULT_COARSE_STEP;
         long rangeDays = Duration.between(from, to).toDays();
         boolean hasSmallBody = bodyA.isSmallBody() || bodyB.isSmallBody();
 
@@ -922,7 +884,7 @@ public class EventCatalogService {
     }
 
     private static String deterministicId(EventType type, BodyId bodyA, BodyId bodyB, Instant time) {
-        return "%s_%s_%s_%s".formatted(
+        return ("v" + CatalogEvent.CURRENT_ALGORITHM_VERSION + "_%s_%s_%s_%s").formatted(
             type.apiValue(),
             bodyA.apiValue(),
             bodyB.apiValue(),
