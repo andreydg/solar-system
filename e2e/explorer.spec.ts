@@ -727,21 +727,75 @@ test("manual trajectory retry clears the stale error while its new request is pe
 });
 
 
+for (const [width, fontSize] of [
+  [300, 16], [320, 16], [360, 16], [390, 16], [1280, 16],
+  [360, 20], [390, 20], [320, 24], [360, 24], [1280, 24],
+] as const) {
+  test(`explore actions stay compact and fit their buttons at ${width}px with ${fontSize}px text`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/");
+    await page.addStyleTag({ content: `html { font-size: ${fontSize}px !important; }` });
+    const section = page.getByRole("region", { name: "Explore & share", exact: true });
+    await expect(section).toHaveAttribute("aria-labelledby", "explore-share-heading");
+    await expect(section.getByRole("heading", { name: "Explore & share", exact: true }))
+      .toHaveAttribute("id", "explore-share-heading");
+    const buttons = section.getByRole("button");
+    await expect(buttons).toHaveText(["Share View", "About This Date"]);
+    await expect(section.getByRole("link")).toHaveCount(0);
+    await expect(section.getByText(/Shared views open paused/)).toHaveCount(0);
+    await section.scrollIntoViewIfNeeded();
+    const bounds = await buttons.evaluateAll(elements => elements.map(element => {
+      const button = element as HTMLButtonElement;
+      const style = getComputedStyle(button);
+      const range = document.createRange();
+      range.selectNodeContents(button);
+      const text = range.getBoundingClientRect();
+      const box = button.getBoundingClientRect();
+      return { lines: range.getClientRects().length, textLeft: text.left, textRight: text.right,
+        textTop: text.top, textBottom: text.bottom,
+        contentLeft: box.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft),
+        contentRight: box.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight),
+        contentTop: box.top + parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop),
+        contentBottom: box.bottom - parseFloat(style.borderBottomWidth) - parseFloat(style.paddingBottom),
+        top: box.top, width: box.width, height: box.height };
+    }));
+    for (const box of bounds) {
+      if (fontSize === 16 && width >= 320) expect(box.lines).toBe(1);
+      else expect(box.lines).toBeGreaterThanOrEqual(1);
+      expect(box.textLeft).toBeGreaterThanOrEqual(box.contentLeft);
+      expect(box.textRight).toBeLessThanOrEqual(box.contentRight);
+      expect(box.textTop).toBeGreaterThanOrEqual(box.contentTop);
+      expect(box.textBottom).toBeLessThanOrEqual(box.contentBottom);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    expect(bounds[0].top).toBe(bounds[1].top);
+    expect(bounds[0].width).toBeCloseTo(bounds[1].width, 0);
+    await section.getByRole("button", { name: "Share View", exact: true }).click();
+    await expect(section.getByLabel("Share link (date, bodies, and focus)")).toBeVisible();
+    await expect(section.getByText(/Shared views open paused/)).toBeVisible();
+    await section.getByRole("button", { name: "About This Date", exact: true }).click();
+    await expect(section.getByRole("region", { name: "Event explanation", exact: true })).toBeVisible();
+    await expect(section.getByRole("link", { name: "Retrograde motion", exact: true })).toBeVisible();
+    await expect(section.getByText(/Choose About This Date again to refresh/)).toBeVisible();
+  });
+}
+
 test("share links reopen paused with exact UTC state and restore browser history", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await page.getByLabel("Jump to date (UTC)").fill("2027-02-19T15:45");
   await page.getByRole("combobox", { name: "Event type", exact: true }).selectOption("opposition");
-  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.getByRole("button", { name: "Share View", exact: true }).click();
   const first = await page.getByLabel("Share link (date, bodies, and focus)").inputValue();
   await page.getByLabel("Jump to date (UTC)").fill("2028-05-01T12:30");
-  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.getByRole("button", { name: "Share View", exact: true }).click();
   await page.goBack();
   await expect(page.getByLabel("Jump to date (UTC)")).toHaveValue("2027-02-19T15:45");
   await page.goto(first);
   await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Event type", exact: true })).toHaveValue("opposition");
-  await page.getByRole("button", { name: "Explain this date", exact: true }).click();
+  await page.getByRole("button", { name: "About This Date", exact: true }).click();
   await expect(page.getByRole("img", { name: /Earth-view sky track/ })).toBeVisible();
 });
 
@@ -773,7 +827,7 @@ test("mobile shared view shows explanation and reduced-motion starts paused", as
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Explain this date", exact: true }).click();
+  await page.getByRole("button", { name: "About This Date", exact: true }).click();
   await expect(page.getByRole("img", { name: /Earth-view sky track/ })).toBeVisible();
   await page.getByRole("button", { name: "Close explanation", exact: true }).click();
   await expect(page.getByRole("img", { name: /Earth-view sky track/ })).toHaveCount(0);
@@ -790,7 +844,7 @@ test("Back after the first Share preserves the bare-page draft, result and hash-
   await page.getByRole("combobox", { name: "Event type", exact: true }).selectOption("opposition");
   await page.getByRole("button", { name: "Find", exact: true }).click();
   await expect(page.getByRole("button", { name: /Next/ })).toBeVisible();
-  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.getByRole("button", { name: "Share View", exact: true }).click();
   await page.goBack();
   expect(new URL(page.url()).search).toBe("");
   await expect(page.getByLabel("Jump to date (UTC)")).toHaveValue("1700-01-02T12:00");
@@ -810,7 +864,7 @@ test("edits clear stale share links and invalidate the address bar only once", a
   await page.goto("/");
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await page.getByLabel("Jump to date (UTC)").fill("2027-02-19T15:45");
-  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.getByRole("button", { name: "Share View", exact: true }).click();
   const original = await page.getByLabel("Share link (date, bodies, and focus)").inputValue();
   await page.evaluate(() => {
     const replace = history.replaceState.bind(history);
@@ -829,7 +883,7 @@ test("edits clear stale share links and invalidate the address bar only once", a
   }));
   expect(await page.evaluate(() => (window as unknown as { replacements: number }).replacements)).toBe(1);
   await page.getByRole("button", { name: "Pause", exact: true }).click();
-  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.getByRole("button", { name: "Share View", exact: true }).click();
   const updated = await page.getByLabel("Share link (date, bodies, and focus)").inputValue();
   expect(updated).not.toBe(original);
   expect(new URL(updated).searchParams.get("bodies")).not.toContain("jupiter");
@@ -843,12 +897,12 @@ test("share pages keep canonical SEO without an incorrect home-page Open Graph U
   expect(html).toContain('rel="canonical"');
   expect(html).not.toContain('property="og:url"');
   await page.goto("/?v=1&time=2027-02-19T15:45:00Z");
-  await page.getByRole("button", { name: "Explain this date", exact: true }).click();
+  await page.getByRole("button", { name: "About This Date", exact: true }).click();
   await expect(page.getByText("← increasing RA (east)", { exact: true })).toBeVisible();
 });
 test("Back restores an edited share's URL, and reload ignores a mismatched history snapshot", async ({ page }) => {
   const date = page.getByLabel("Jump to date (UTC)");
-  const share = page.getByRole("button", { name: "Share view", exact: true });
+  const share = page.getByRole("button", { name: "Share View", exact: true });
   await page.goto("/?v=1&time=2027-01-01T00:00:00Z");
   await share.click();
   const first = page.url();
@@ -879,7 +933,7 @@ test("shared views and Share work when crypto.randomUUID is unavailable", async 
   await page.addInitScript(() => Object.defineProperty(crypto, "randomUUID", { value: undefined }));
   await page.goto("/?v=1&time=1700-01-01T00:00:00Z");
   await expect(page.getByLabel("Jump to date (UTC)")).toHaveValue("1700-01-01T00:00");
-  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.getByRole("button", { name: "Share View", exact: true }).click();
   await expect(page.getByLabel("Share link (date, bodies, and focus)")).toBeVisible();
 });
 
@@ -899,7 +953,7 @@ test("Share immediately after a queued playback tick keeps one exact paused time
   await page.evaluate(() => {
     const step = (window as unknown as { stepFrame: (now: number) => void }).stepFrame;
     step(1000); step(1110); // publish a tick without letting React render it yet
-    [...document.querySelectorAll("button")].find(b => b.textContent === "Share view")!.click();
+    [...document.querySelectorAll("button")].find(b => b.textContent === "Share View")!.click();
     step(1210); // callback already queued before Share must now be inert
   });
   const expected = "2027-01-02T02:24:00.000Z"; // 110 ms at 10 simulated days/sec
@@ -920,7 +974,7 @@ test("sharing an active search never restores a phantom Searching status", async
   await page.getByLabel("Jump to date (UTC)").fill("2026-01-01T00:00");
   await page.getByRole("button", { name: "Find", exact: true }).click();
   await expect(page.getByText("Searching for next event...", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.getByRole("button", { name: "Share View", exact: true }).click();
   await page.goBack();
   await expect(page.getByRole("button", { name: "Find", exact: true })).toBeEnabled();
   await expect(page.getByText("Searching for next event...", { exact: true })).toHaveCount(0);
@@ -933,7 +987,7 @@ test("sharing an active search never restores a phantom Searching status", async
 
 test("Forward restores the live clock as well as the date field", async ({ page }) => {
   const date = page.getByLabel("Jump to date (UTC)");
-  const share = page.getByRole("button", { name: "Share view", exact: true });
+  const share = page.getByRole("button", { name: "Share View", exact: true });
   await page.goto("/?v=1&time=2027-01-01T00:00:00Z");
   await share.click();
   await date.fill("2028-01-01T00:00");
@@ -969,7 +1023,7 @@ test("Share cancels a pending Find immediately and late results cannot strip the
   await page.getByLabel("Jump to date (UTC)").fill("2026-01-01T00:00");
   await page.getByRole("button", { name: "Find", exact: true }).click();
   await expect(page.getByText("Searching for next event...", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Share view", exact: true }).click();
+  await page.getByRole("button", { name: "Share View", exact: true }).click();
   await expect(page.getByRole("button", { name: "Find", exact: true })).toBeEnabled();
   await expect(page.getByText("Searching for next event...", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Search cancelled", { exact: true })).toBeVisible();
@@ -1017,7 +1071,7 @@ test("defence-in-depth pause holds under synthetic popstate frame ordering", asy
       remove(type, listener && (wrapped.get(listener) ?? listener), options);
   });
   const date = page.getByLabel("Jump to date (UTC)");
-  const share = page.getByRole("button", { name: "Share view", exact: true });
+  const share = page.getByRole("button", { name: "Share View", exact: true });
   await page.goto("/?v=1&time=2027-01-01T00:00:00Z");
   await share.click();
   await date.fill("2030-01-01T00:00");
@@ -1045,7 +1099,7 @@ test("a later Share never saves or restores the transient Search cancelled notic
     await page.getByLabel("Jump to date (UTC)").fill("2026-01-01T00:00");
     await page.getByRole("button", { name: "Find", exact: true }).click();
     await expect(page.getByText("Searching for next event...", { exact: true })).toBeVisible();
-    const share = page.getByRole("button", { name: "Share view", exact: true });
+    const share = page.getByRole("button", { name: "Share View", exact: true });
     const cancelled = page.getByText("Search cancelled", { exact: true });
     await share.click();
     await expect(cancelled).toBeVisible();
@@ -1071,7 +1125,7 @@ for (const completed of [false, true]) {
       await expect(page.locator(".status-text")).toHaveText("Loaded provisional event.");
     } else await expect(page.locator(".status-text")).toHaveCount(0);
     const before = await page.locator(".status-text").allTextContents();
-    await page.getByRole("button", { name: "Share view", exact: true }).click();
+    await page.getByRole("button", { name: "Share View", exact: true }).click();
     await expect(page.getByLabel("Share link (date, bodies, and focus)")).toBeVisible();
     expect(await page.locator(".status-text").allTextContents()).toEqual(before);
     await expect(page.getByText("Search cancelled", { exact: true })).toHaveCount(0);
@@ -1084,7 +1138,7 @@ for (const completed of [false, true]) {
       await page.getByRole("combobox", { name: "Event type", exact: true }).selectOption("opposition");
       await page.getByRole("button", { name: "Find", exact: true }).click();
       await expect(page.locator(".status-text")).toHaveText("Second search unavailable");
-      await page.getByRole("button", { name: "Share view", exact: true }).click();
+      await page.getByRole("button", { name: "Share View", exact: true }).click();
       expect(await page.evaluate(() => window.history.state.eventStatus)).toBe("Second search unavailable");
       await page.goBack();
       await expect(page.locator(".status-text")).toHaveText("Loaded provisional event.");
@@ -1114,7 +1168,7 @@ test("browser Back/Forward resets event navigation and seeds the restored snapsh
   await page.goto("/");
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   const date = page.getByLabel("Jump to date (UTC)");
-  const share = page.getByRole("button", { name: "Share view", exact: true });
+  const share = page.getByRole("button", { name: "Share View", exact: true });
   await date.fill("2026-01-01T00:00"); await date.press("Tab");
   await page.getByRole("button", { name: "Find", exact: true }).click();
   await expect(date).toHaveValue("2027-02-20T12:00");
@@ -1156,7 +1210,7 @@ async function prepareHistoryEdges(page: import("@playwright/test").Page) {
   await page.getByRole("combobox", { name: "Event type", exact: true }).selectOption("opposition");
   return { date, queries, catalog, find: page.getByRole("button", { name: "Find", exact: true }),
     next: page.getByRole("button", { name: /Next/ }), prev: page.getByRole("button", { name: /Prev/ }),
-    share: page.getByRole("button", { name: "Share view", exact: true }) };
+    share: page.getByRole("button", { name: "Share View", exact: true }) };
 }
 
 test("Back to an entry without an event clears stale replay history and Find uses its date", async ({ page }) => {
@@ -1263,7 +1317,8 @@ for (const navigation of ["reload", "cross-document Back"] as const) {
     const shared = page.url();
     if (navigation === "reload") await page.reload();
     else {
-      await page.getByRole("link", { name: "Why do planets appear to move backward?" }).click();
+      await page.getByRole("button", { name: "About This Date", exact: true }).click();
+      await page.getByRole("link", { name: "Retrograde motion", exact: true }).click();
       await expect(page).toHaveURL(/\/learn\/retrograde\.html$/);
       await page.goBack();
     }
