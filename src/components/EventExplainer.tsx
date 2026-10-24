@@ -11,7 +11,7 @@ export default function EventExplainer({ type, body, time }: { type: CatalogEven
   const xy = (p: typeof points[number]) => ({ x: 25+(maxX-p.ra)/width*250, y: 130-(p.dec-minY)/height*100 });
   return <section className="event-explainer" aria-label="Event explanation">
     <h3>What am I seeing?</h3>
-    <p className="explanation-note">Snapshot: {time.toISOString().slice(0, 16).replace("T", " ")} UTC. Choose Explain this date again to refresh.</p>
+    <p className="explanation-note">Snapshot: {time.toISOString().slice(0, 16).replace("T", " ")} UTC. Choose About This Date again to refresh.</p>
     <p>{EVENT_TYPE_BY_ID[type].description}</p>
     {points.length > 0 ? <>
       <h4>{BODY_BY_ID[body].name} from Earth</h4>
