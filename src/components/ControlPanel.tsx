@@ -300,17 +300,17 @@ export default function ControlPanel({
         </div>
       </section>
 
-      <section className="control-section">
-        <h2>Explore &amp; share</h2>
-        <div className="button-row">
-          <button type="button" disabled={!eventPairIsValid} onClick={onShare}>Share view</button>
-          <button type="button" onClick={() => setExplanation({ time: currentTime, type: eventType, body: eventBodyB === "earth" ? eventBodyA : eventBodyB })}>Explain this date</button>
+      <section className="control-section" aria-labelledby="explore-share-heading">
+        <h2 id="explore-share-heading">Explore &amp; share</h2>
+        <div className="button-row explore-actions">
+          <button type="button" disabled={!eventPairIsValid} onClick={onShare}>Share View</button>
+          <button type="button" onClick={() => setExplanation({ time: currentTime, type: eventType, body: eventBodyB === "earth" ? eventBodyA : eventBodyB })}>About This Date</button>
         </div>
-        {sharedLink ? <label className="field"><span>Share link (date, bodies, and focus)</span>
+        {sharedLink ? <><label className="field"><span>Share link (date, bodies, and focus)</span>
           <input readOnly value={sharedLink} onFocus={event => event.target.select()} />
-        </label> : null}
+        </label>
         <p className="explanation-note">Shared views open paused. Links preserve the scene and search criteria, not a claim that an event is validated.</p>
-        <nav aria-label="Learn about planetary events"><a href="/learn/retrograde.html">Why do planets appear to move backward?</a></nav>
+        </> : null}
         {explanation ? <><EventExplainer {...explanation} /><button type="button" onClick={() => setExplanation(null)}>Close explanation</button></> : null}
       </section>
       {showEventHelp ? (

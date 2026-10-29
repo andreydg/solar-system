@@ -11,7 +11,7 @@ const guides = [
       "Opposition and closest approach are not the same calculation. One concerns direction; the other minimizes distance. Because orbits are not perfect concentric circles, their dates need not coincide.",
       "This explorer searches a geometric, geocentric catalog. A provisional result is an approximate candidate; a validated result has passed the app’s JPL geometry checks. The displayed refinement grid is not an observational accuracy guarantee. Local visibility also depends on your location, horizon, weather, and time of night.",
     ],
-    exercise: "Open the fixed Mars example below, then compare Opposition with Closest approach using Find. Use Explain this date to inspect the Earth-view track. Rotate the Sun-centered scene and look for Earth between the Sun and Mars. The scene exaggerates body sizes, so apparent disk sizes there are not to scale.",
+    exercise: "Open the fixed Mars example below, then compare Opposition with Closest approach using Find. Use About This Date to inspect the Earth-view track. Rotate the Sun-centered scene and look for Earth between the Sun and Mars. The scene exaggerates body sizes, so apparent disk sizes there are not to scale.",
     source: "https://science.nasa.gov/resource/the-opposition-of-mars/", sourceTitle: "NASA: The Opposition of Mars",
   },
   {
@@ -23,7 +23,7 @@ const guides = [
       "The turning dates are called stationary points. They bracket a retrograde interval, but the planet is not physically standing still. The answer depends on the coordinate being tracked: this catalog uses geocentric ecliptic longitude; the explanation plot uses J2000 right ascension and declination, so its turning dates can differ.",
       "A Sun-centered orbit and an Earth-view track answer different questions. The orbit shows where the planet is in space. The sky track shows which direction we look to see it. The explanation chart is geometric, not a prediction of where to point a telescope from your backyard.",
     ],
-    exercise: "Open the Mars example and select Explain this date. Follow the points from −120 days through the selected date to +120 days. Compare the turn in the sky track with Mars’s continuing orbit in the main view. Search Retrograde start and Retrograde end separately; share each paused view with someone and ask them to explain the difference.",
+    exercise: "Open the Mars example and select About This Date. Follow the points from −120 days through the selected date to +120 days. Compare the turn in the sky track with Mars’s continuing orbit in the main view. Search Retrograde start and Retrograde end separately; share each paused view with someone and ask them to explain the difference.",
     source: "https://pwg.gsfc.nasa.gov/stargaze/Splanets.htm", sourceTitle: "NASA Goddard: The Planets",
   },
   {
