@@ -17,12 +17,12 @@ export default function EventExplainer({ type, body, time }: { type: CatalogEven
       <h4>{BODY_BY_ID[body].name} from Earth</h4>
       <svg viewBox="0 0 300 165" role="img" aria-label="Approximate Earth-view sky track, 120 days before and after the selected date">
         <path d="M20 20V140H285" fill="none" stroke="#666" />
-        <polyline points={points.map(p => { const v=xy(p); return `${v.x},${v.y}`; }).join(" ")} fill="none" stroke="#d8a44f" strokeWidth="2" />
+        <polyline points={points.map(p => { const v=xy(p); return `${v.x},${v.y}`; }).join(" ")} fill="none" stroke="var(--accent-bright)" strokeWidth="2" />
         {[0,30,60].map(i => { const p=xy(points[i]); return <g key={i}>
-          <circle cx={p.x} cy={p.y} r={i===30 ? 4 : 2} fill={i===30 ? "#8bc3ef" : "#d8a44f"} />
-          <text x={p.x} y={p.y-8} textAnchor="middle" fill="#e8e8e8" fontSize="10">{i===30 ? "Selected date" : `${i===0 ? "−" : "+"}120d`}</text>
+          <circle cx={p.x} cy={p.y} r={i===30 ? 4 : 2} fill={i===30 ? "var(--success)" : "var(--accent-bright)"} />
+          <text x={p.x} y={p.y-8} textAnchor="middle" fill="var(--text-soft)" fontSize="10">{i===30 ? "Selected date" : `${i===0 ? "−" : "+"}120d`}</text>
         </g>; })}
-        <text x="150" y="158" textAnchor="middle" fill="#aaa" fontSize="10">← increasing RA (east)</text>
+        <text x="150" y="158" textAnchor="middle" fill="var(--text-soft)" fontSize="10">← increasing RA (east)</text>
       </svg>
       <p className="explanation-note">Geometric J2000 direction; vertical axis is declination. Each axis is scaled independently. A turn in the track is a change of viewing direction, not an orbit reversal. Not a local sky or visibility forecast.</p>
     </> : null}

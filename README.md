@@ -95,6 +95,18 @@ Deploy the service in the same GCP project as your Firestore database.
 - Major-planet closest-approach fallback finds the next/previous local minimum
   within five years when the backend is unavailable.
 
+## Interface and fonts
+
+The compact, light control panel follows the editorial styling of
+[Durak](https://durak.andreyg.com/), while the space scene retains its dark palette.
+On desktop the controls remain on the right; on smaller screens they follow the
+scene. Body toggles use three columns on desktop, adapting to enlarged text.
+
+DM Sans and DM Serif Display are self-hosted in `public/fonts` (no external font
+requests). These are the same unmodified Latin WOFF2 assets used by Durak.
+Their copyright notices and SIL Open Font License are bundled in
+[`public/fonts/OFL.txt`](public/fonts/OFL.txt) and served at `/fonts/OFL.txt`.
+
 ## Architecture Notes
 
 The browser still owns smooth animation because analytical ephemeris calculations

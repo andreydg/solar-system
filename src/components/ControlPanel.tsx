@@ -100,8 +100,9 @@ export default function ControlPanel({
 
   return (
     <aside className="control-panel" aria-label="Simulation controls">
-      <div>
-        <h1 style={{ textAlign: "center" }}>[Solar System Explorer]</h1>
+      <div className="panel-header">
+        <img src="/apple-touch-icon.png" alt="" width="32" height="32" />
+        <h1>Solar System Explorer</h1>
       </div>
 
       <section className="control-section">
