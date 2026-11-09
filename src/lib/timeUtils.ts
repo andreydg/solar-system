@@ -1,6 +1,6 @@
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** datetime-local is only an editor here: its displayed fields explicitly mean UTC. */
+/** The Time section's datetime-local field both shows and edits the date; its fields always mean UTC, not local time. */
 export function parseUtcInput(value: string): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
   const time = new Date(`${value}:00Z`);

@@ -20,7 +20,8 @@ test("Time uses one UTC date editor for playback, manual jumps, and Today", asyn
   await expect(date).toHaveValue("2027-02-19T15:45");
   await time.getByRole("button", { name: "Play", exact: true }).click();
   await expect(date).not.toHaveValue("2027-02-19T15:45");
-  await time.getByRole("button", { name: "Pause", exact: true }).click();
+  // Edit while still playing: the manual jump itself must pause playback.
+  await expect(time.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
   await date.fill("2030-07-04T12:30");
   await time.getByRole("heading", { name: "Time", exact: true }).click();
   await expect(date).toHaveValue("2030-07-04T12:30");
@@ -126,6 +127,9 @@ for (const [width, fontSize] of [[320, 16], [320, 24], [360, 20], [1280, 24]] as
       const scene = document.querySelector(".hero-panel")!.getBoundingClientRect();
       const elements = Array.from(panel.querySelectorAll(".body-toggle, h1"));
       return {
+        header: panel.querySelector(".panel-header")!.getBoundingClientRect().toJSON(),
+        title: panel.querySelector(".panel-header h1")!.getBoundingClientRect().toJSON(),
+        firstSectionTop: panel.querySelector(".control-section")!.getBoundingClientRect().top,
         panelTop: box.top, sceneBottom: scene.bottom,
         pageWidth: document.documentElement.scrollWidth,
         bodyColumns: getComputedStyle(panel.querySelector(".body-grid")!).gridTemplateColumns.split(" ").length,
@@ -141,6 +145,11 @@ for (const [width, fontSize] of [[320, 16], [320, 24], [360, 20], [1280, 24]] as
     expect(layout.pageWidth).toBeLessThanOrEqual(width);
     expect(layout.bodyColumns).toBe(2);
     if (width <= 980) expect(layout.panelTop).toBeGreaterThanOrEqual(layout.sceneBottom);
+    // The header row must grow with its wrapped title. In the height-limited desktop panel a
+    // shrinking row keeps its min-height while the title spills into the Time section.
+    expect(layout.title.top, "title top inside header").toBeGreaterThanOrEqual(layout.header.top - 1);
+    expect(layout.title.bottom, "title bottom inside header").toBeLessThanOrEqual(layout.header.bottom + 1);
+    expect(layout.title.bottom, "title above Time section").toBeLessThanOrEqual(layout.firstSectionTop + 1);
     for (const label of layout.labels) {
       expect(label.left, label.text!).toBeGreaterThanOrEqual(label.bounds.left - 1);
       expect(label.right, label.text!).toBeLessThanOrEqual(label.bounds.right + 1);
