@@ -173,6 +173,8 @@ function result(time: Date): CatalogEventResult {
 it("real App clock drives the actual scene every frame and synchronizes date edits and Next while playing", async () => {
   const app = await mountApp();
   const edited = new Date("2030-07-04T12:30:00Z");
+  expect(app.container.querySelectorAll('input[type="datetime-local"]')).toHaveLength(1);
+  expect(app.container.querySelector(".time-readout")).toBeNull();
   await app.update(() => bridge.controls!.onPlayToggle());
   expect(bridge.controls!.isPlaying).toBe(true);
   await app.update(() => bridge.controls!.onDateChange(edited));
@@ -188,7 +190,11 @@ it("real App clock drives the actual scene every frame and synchronizes date edi
     const live = new Date(edited.getTime() + i * 50 * 365 * 86_400);
     expect(bodyPoint("earth").distanceTo(previous)).toBeGreaterThan(0.001);
     assertSceneAt(live);
-    if (i % 2 === 0) expect(bridge.controls!.currentTime).toEqual(live);
+    if (i % 2 === 0) {
+      expect(bridge.controls!.currentTime).toEqual(live);
+      expect(app.container.querySelector<HTMLInputElement>('input[type="datetime-local"]')!.value)
+        .toBe(live.toISOString().slice(0, 16));
+    }
     previous = bodyPoint("earth");
   }
   const next = new Date("2032-02-20T10:00:00Z");
