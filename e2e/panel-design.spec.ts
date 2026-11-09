@@ -8,6 +8,28 @@ test.beforeEach(async ({ page }) => {
   }));
 });
 
+test("Time uses one UTC date editor for playback, manual jumps, and Today", async ({ page }) => {
+  await page.goto(pausedView);
+  const time = page.locator(".control-section").filter({
+    has: page.getByRole("heading", { name: "Time", exact: true }),
+  });
+  const date = time.getByLabel("Jump to date (UTC)");
+  await expect(time.locator('input[type="datetime-local"]')).toHaveCount(1);
+  await expect(time.locator(".time-readout")).toHaveCount(0);
+  await expect(time.getByText("Feb 19, 2027, 3:45 PM", { exact: true })).toHaveCount(0);
+  await expect(date).toHaveValue("2027-02-19T15:45");
+  await time.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(date).not.toHaveValue("2027-02-19T15:45");
+  await time.getByRole("button", { name: "Pause", exact: true }).click();
+  await date.fill("2030-07-04T12:30");
+  await time.getByRole("heading", { name: "Time", exact: true }).click();
+  await expect(date).toHaveValue("2030-07-04T12:30");
+  await expect(time.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  await page.clock.setSystemTime(new Date("2028-06-01T12:34:00Z"));
+  await time.getByRole("button", { name: "Today", exact: true }).click();
+  await expect(date).toHaveValue("2028-06-01T12:34");
+});
+
 for (const [width, height] of [[1915, 873], [1280, 800]] as const) {
   test(`compact right panel keeps Find fully visible without scrolling at ${width}x${height}`, async ({ page }) => {
     await page.setViewportSize({ width, height });

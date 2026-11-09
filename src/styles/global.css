@@ -474,27 +474,6 @@ small {
   box-shadow: 0 1px 2px #2b262004;
 }
 
-.time-readout {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 6px;
-  border-bottom: 1px solid #eeece7;
-  padding-bottom: 6px;
-}
-
-.time-readout span {
-  font: 500 1rem/1.45 var(--panel-font);
-  letter-spacing: -0.025em;
-  color: var(--text);
-}
-
-.time-readout small {
-  color: #8a6a3c;
-  font: 500 0.625rem/1.4 var(--font-mono);
-}
-
 #date-edit-help {
   display: block;
   margin-top: 4px;

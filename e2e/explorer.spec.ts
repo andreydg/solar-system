@@ -21,7 +21,7 @@ test("production jar serves the built favicon and WebGL scene; UTC editor surviv
   const date = page.getByLabel("Jump to date (UTC)");
   await date.fill("2026-07-04T12:30");
   await expect(date).toHaveValue("2026-07-04T12:30");
-  await expect(page.locator(".time-readout")).toContainText("12:30");
+  await expect(page.locator(".scene-date")).toHaveText("2026-07-04");
   await date.fill("");
   await expect(page.getByRole("button", { name: "Find", exact: true })).toBeVisible();
 });

@@ -107,11 +107,6 @@ export default function ControlPanel({
 
       <section className="control-section">
         <h2>Time</h2>
-        <div className="time-readout">
-          <span>{formatDate(currentTime)}</span>
-          <small>UTC</small>
-        </div>
-
         <label className="field">
           <span>Jump to date (UTC)</span>
           <input
